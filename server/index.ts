@@ -4,11 +4,14 @@ import { resolve, join, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AtlasDatabase } from './database.ts';
 import { AssistantService } from './assistant-service.ts';
+import { loadAssistantToken } from './assistant-access.ts';
+import { createAssistantRpc } from './assistant-rpc.ts';
 import { atlasDataDirectory } from './paths.ts';
 import { ProjectStore } from './projects.ts';
 import { BetterBibTeX } from './bibtex.ts';
 import { decodeFigure } from './project-assets.ts';
 import { ZoteroClient, ZOTERO_BASE } from './zotero.ts';
+import { attachmentAvailability, setAttachmentVisibility } from './attachment-availability.ts';
 import { secureRequest, json, readJson } from './http.ts';
 import type { SyncState } from '../shared/types.ts';
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -19,6 +22,7 @@ const database = new AtlasDatabase(join(dataDirectory, 'atlas.sqlite'));
 const projects = new ProjectStore(database.db);
 const assistant = new AssistantService(database, projects);
 assistant.retrieval.refresh();
+const assistantRpc = await createAssistantRpc(assistant, await loadAssistantToken(dataDirectory));
 const bibliography = new BetterBibTeX();
 const zotero = new ZoteroClient();
 const port = Number(process.env.ATLAS_PORT || 3210);
@@ -31,6 +35,22 @@ const sync: SyncState = {
   imported: 0,
   updated: 0,
 };
+async function syncFromZotero() {
+  if (sync.syncing) throw new Error('A Zotero sync is already in progress');
+  sync.syncing = true;
+  sync.error = null;
+  try {
+    const snapshots = await zotero.snapshots();
+    Object.assign(sync, database.applySnapshots(snapshots));
+    sync.lastSync = database.getSetting('lastSync');
+  } catch (error) {
+    sync.error = error instanceof Error ? error.message : 'Sync failed';
+    throw error;
+  } finally {
+    sync.syncing = false;
+  }
+}
+assistant.zotero.setSync(syncFromZotero);
 const production = process.argv.includes('--production');
 const vite = production
   ? null
@@ -52,6 +72,11 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://127.0.0.1:${port}`),
       path = url.pathname;
+    if (path === '/api/assistant/mcp') return await assistantRpc.handle(req, res);
+    if (req.headers.authorization)
+      return json(res, 403, {
+        error: 'Assistant credentials cannot access the Atlas review interface.',
+      });
     if (path.startsWith('/api/')) {
       if (
         !['GET', 'HEAD'].includes(req.method ?? '') &&
@@ -67,7 +92,19 @@ const server = createServer(async (req, res) => {
           sync,
         });
       if (req.method === 'GET' && path === '/api/assistant')
-        return json(res, 200, assistant.status());
+        return json(res, 200, { ...assistant.status(), zotero: await assistant.zotero.status() });
+      if (req.method === 'GET' && path === '/api/zotero/status')
+        return json(res, 200, await assistant.zotero.status());
+      if (req.method === 'POST' && path === '/api/zotero/authorize')
+        return json(res, 200, await assistant.zotero.authorize());
+      const zoteroAction = path.match(/^\/api\/zotero\/actions\/([^/]+)\/(decision|retry)$/);
+      if (req.method === 'POST' && zoteroAction) {
+        const id = decodeURIComponent(zoteroAction[1]);
+        if (zoteroAction[2] === 'retry') return json(res, 200, await assistant.zotero.retry(id));
+        const body = await readJson(req);
+        if (typeof body.approve !== 'boolean') throw new Error('approve must be a boolean');
+        return json(res, 200, await assistant.zotero.decide(id, body.approve));
+      }
       if (req.method === 'POST' && path === '/api/assistant/profile') {
         const body = await readJson(req);
         const profile = assistant.store.setProfile(body.text as string);
@@ -171,17 +208,10 @@ const server = createServer(async (req, res) => {
         return json(res, tag ? 200 : 404, tag ?? { error: 'Tag not found' });
       }
       if (req.method === 'POST' && path === '/api/sync') {
-        if (sync.syncing) return json(res, 409, { error: 'A sync is already in progress' });
-        sync.syncing = true;
-        sync.error = null;
         try {
-          const snapshots = await zotero.snapshots();
-          Object.assign(sync, database.applySnapshots(snapshots));
-          sync.lastSync = database.getSetting('lastSync');
-        } catch (e) {
-          sync.error = e instanceof Error ? e.message : 'Sync failed';
-        } finally {
-          sync.syncing = false;
+          await syncFromZotero();
+        } catch {
+          /* Return the sync error below. */
         }
         return json(
           res,
@@ -207,11 +237,32 @@ const server = createServer(async (req, res) => {
         const ok = database.deleteAnnotation(decodeURIComponent(annotation[1]));
         return json(res, ok ? 200 : 404, ok ? { ok } : { error: 'Annotation not found' });
       }
+      const attachmentState = path.match(
+        /^\/api\/attachments\/([^/]+)\/(availability|visibility)$/,
+      );
+      if (attachmentState) {
+        const id = decodeURIComponent(attachmentState[1]);
+        const record = database.attachment(id);
+        if (!record) return json(res, 404, { error: 'Attachment not found' });
+        if (req.method === 'GET' && attachmentState[2] === 'availability')
+          return json(res, 200, await attachmentAvailability(zotero, record));
+        if (req.method === 'POST' && attachmentState[2] === 'visibility') {
+          const { hidden } = await readJson(req);
+          if (typeof hidden !== 'boolean')
+            return json(res, 400, { error: 'hidden must be a boolean' });
+          return json(res, 200, await setAttachmentVisibility(database, zotero, id, hidden));
+        }
+      }
       const attachment = path.match(/^\/api\/attachments\/([^/]+)\/file$/);
       if (req.method === 'GET' && attachment) {
         const record = database.attachment(decodeURIComponent(attachment[1]));
         if (!record || record.content_type !== 'application/pdf')
           return json(res, 404, { error: 'PDF attachment not found. Sync Zotero and try again.' });
+        const requestedPaper = new URL(req.url!, 'http://localhost').searchParams.get('paperId');
+        if (requestedPaper && requestedPaper !== record.paper_id)
+          return json(res, 409, {
+            error: 'This PDF does not belong to the selected paper. Refresh Atlas and try again.',
+          });
         let filename: string;
         try {
           filename = await zotero.attachmentPath(record);
@@ -244,7 +295,7 @@ const server = createServer(async (req, res) => {
         res.writeHead(200, {
           'Content-Type': 'application/pdf',
           'Content-Length': info.size,
-          'Content-Disposition': 'inline; filename="paper.pdf"',
+          'Content-Disposition': `inline; filename="${record.zotero_key}.pdf"; filename*=UTF-8''${encodeURIComponent(record.filename || `${record.zotero_key}.pdf`).replace(/['()*]/g, (char) => '%' + char.charCodeAt(0).toString(16))}`,
           'Cache-Control': 'private, no-store',
         });
         const stream = handle.createReadStream({ start: 0 });
@@ -301,6 +352,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const)
   process.on(signal, () => {
     server.close();
     void vite?.close();
+    void assistantRpc.close();
     database.close();
     process.exit(0);
   });

@@ -106,6 +106,106 @@ test('v4 migration preserves human work and runs once across reopen', () => {
   }
 });
 
+test('reading score migration preserves existing reviews and human summaries', () => {
+  const f = fixture();
+  try {
+    f.db.patchPaper(paperId, { summary: 'Human summary to preserve' });
+    const saved = f.assistant.submit(input('review', { paperId }));
+    f.db.db.exec('ALTER TABLE ai_records DROP COLUMN reading_recommendation_json');
+    f.db.db.exec('DELETE FROM schema_migrations WHERE version=6');
+    const migrated = new AssistantStore(f.db.db);
+    assert.deepEqual(
+      migrated.list().find((record) => record.id === saved.id),
+      saved,
+    );
+    assert.equal(f.db.paper(paperId)?.summary, 'Human summary to preserve');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('legacy review scores appear without rewriting saved reviews and structured scores take precedence', () => {
+  const f = fixture();
+  try {
+    const body = 'Reading recommendation: 4/5 (recommended). Relevant to the research profile.';
+    const legacy = f.assistant.submit(input('review', { paperId, body }));
+    assert.deepEqual(
+      f.assistant.list().find((record) => record.id === legacy.id)?.readingRecommendation,
+      { score: 4, reason: 'Relevant to the research profile.' },
+    );
+    const raw = f.db.db
+      .prepare('SELECT body, reading_recommendation_json FROM ai_records WHERE id=?')
+      .get(legacy.id);
+    assert.equal(raw?.body, body);
+    assert.equal(raw?.reading_recommendation_json, null);
+    const modern = f.assistant.submit(
+      input('review', {
+        paperId,
+        body,
+        readingRecommendation: { score: 2, reason: 'Updated assessment.' },
+      }),
+    );
+    assert.equal(modern.readingRecommendation?.score, 2);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('reading scores validate their range, explanation, and record kind', () => {
+  const f = fixture();
+  try {
+    for (const score of [0, 6, 2.5, NaN]) {
+      assert.throws(
+        () =>
+          f.assistant.submit(
+            input('review', {
+              paperId,
+              readingRecommendation: { score, reason: 'Rationale' },
+            }),
+          ),
+        /integer from 1 to 5/,
+      );
+    }
+    assert.throws(
+      () =>
+        f.assistant.submit(
+          input('review', {
+            paperId,
+            readingRecommendation: { score: 3, reason: '   ' },
+          }),
+        ),
+      /reading recommendation reason/,
+    );
+    assert.throws(
+      () =>
+        f.assistant.submit(
+          input('profile', {
+            readingRecommendation: { score: 3, reason: 'Rationale' },
+          }),
+        ),
+      /belong in paper reviews/,
+    );
+    const legacy = f.assistant.submit(input('review', { paperId }));
+    assert.equal(legacy.readingRecommendation, null);
+    const saved = f.assistant.submit(
+      input('review', {
+        paperId,
+        readingRecommendation: { score: 1, reason: 'Outside the research scope.' },
+      }),
+    );
+    const reopened = new AssistantStore(f.db.db);
+    assert.deepEqual(
+      reopened.list().find((record) => record.id === saved.id)?.readingRecommendation,
+      {
+        score: 1,
+        reason: 'Outside the research scope.',
+      },
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
 test('tag proposals remain pending until approval, then add Atlas assignments without changing source tags', () => {
   const f = fixture();
   try {
@@ -185,7 +285,7 @@ test('AI reviews stay separate and rejected proposals never touch human fields',
     const rejected = f.assistant.submit(
       input('tags', {
         paperId,
-        tags: [{ name: 'method/rejected', description: '' }],
+        tags: [{ name: 'method/rejected', description: 'A proposed method' }],
       }),
     );
     assert.equal(f.assistant.decide(rejected.id, false)?.status, 'rejected');

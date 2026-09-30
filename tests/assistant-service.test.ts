@@ -297,3 +297,99 @@ test('same-run requestKey retries return one record without replacing its conten
     f.cleanup();
   }
 });
+
+test('saved reviews omit raw references while retaining structured evidence', () => {
+  const f = fixture();
+  try {
+    const evidence = f.source(`paper:${paperId}`);
+    const saved = f.service.submit(
+      proposal(f.run.runId, 'review', [evidence.chunkId], {
+        paperId,
+        body: `Repeated climate observations [${evidence.chunkId}].`,
+        readingRecommendation: {
+          score: 4,
+          reason: 'Useful observational methods for climate research.',
+        },
+      }),
+    );
+    assert.equal(saved.body, 'Repeated climate observations.');
+    assert.equal(saved.citations[0].chunkId, evidence.chunkId);
+    assert.equal(saved.readingRecommendation?.score, 4);
+    assert.deepEqual(
+      f.service.store.list().find((record) => record.id === saved.id)?.readingRecommendation,
+      saved.readingRecommendation,
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('review tag suggestions reuse definitions and require descriptions for new tags before approval', () => {
+  const f = fixture();
+  try {
+    f.db.createTag({ name: 'method/climate', description: 'Climate methods' });
+    const evidence = f.source(`paper:${paperId}`);
+    assert.throws(
+      () =>
+        f.service.submit(
+          proposal(f.run.runId, 'tags', [evidence.chunkId], {
+            paperId,
+            tags: [{ name: 'method/new', description: '   ' }],
+          }),
+        ),
+      /requires a brief description/,
+    );
+    const saved = f.service.submit(
+      proposal(f.run.runId, 'tags', [evidence.chunkId], {
+        paperId,
+        tags: [
+          { name: 'method/climate', description: '' },
+          { name: 'method/new', description: 'Repeated observational methods' },
+        ],
+      }),
+    );
+    assert.equal(saved.status, 'pending');
+    assert.equal(saved.tags[0].description, 'Climate methods');
+    assert.deepEqual(f.db.paper(paperId)?.tags, []);
+    assert.equal(
+      f.db.library().tags.some((tag) => tag.name === 'method/new'),
+      false,
+    );
+    f.service.store.decide(saved.id, true);
+    assert.deepEqual(new Set(f.db.paper(paperId)?.tags), new Set(['method/climate', 'method/new']));
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('successful PDF tools index only the affected paper and keep upload success separate from extraction failure', async () => {
+  const f = fixture();
+  try {
+    const action = { id: 'pdf-action', kind: 'pdf', paperId, status: 'completed' } as Awaited<
+      ReturnType<typeof f.service.zotero.addPdf>
+    >;
+    f.service.zotero.addPdf = async () => action;
+    const scopes: (string | undefined)[] = [];
+    f.service.retrieval.index = async (includePdfs, scope) => {
+      assert.equal(includePdfs, true);
+      scopes.push(scope);
+      return { chunks: 1, documents: 1, pdfPages: 1, indexedAt: null, pdfErrors: [] };
+    };
+    const success = await f.service.addPdf(f.run.runId, 'candidate');
+    assert.equal(success.status, 'completed');
+    assert.ok('indexing' in success);
+    assert.deepEqual(scopes, [paperId]);
+    f.service.retrieval.index = async () => {
+      throw new Error('Extraction unavailable');
+    };
+    const extractionFailure = await f.service.addPdf(f.run.runId, 'candidate');
+    assert.equal(extractionFailure.status, 'completed');
+    assert.ok('indexing' in extractionFailure);
+    assert.deepEqual(extractionFailure.indexing, { error: 'Extraction unavailable' });
+    f.service.zotero.addPdf = async () => ({ ...action, status: 'failed' });
+    const failed = await f.service.addPdf(f.run.runId, 'candidate');
+    assert.equal('indexing' in failed, false);
+  } finally {
+    f.cleanup();
+  }
+});

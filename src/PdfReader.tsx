@@ -62,7 +62,7 @@ export default function PdfReader({ paper, attachment, onClose }: Props) {
   const [notesOpen, setNotesOpen] = useState(true);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const fileUrl = `/api/attachments/${encodeURIComponent(attachment.id)}/file`;
+  const fileUrl = `/api/attachments/${encodeURIComponent(attachment.id)}/file?paperId=${encodeURIComponent(paper.id)}`;
 
   useEffect(() => {
     const priorFocus =
@@ -83,7 +83,7 @@ export default function PdfReader({ paper, attachment, onClose }: Props) {
     setPageNumber(1);
     void (async () => {
       try {
-        const response = await fetch(fileUrl, { signal: controller.signal });
+        const response = await fetch(fileUrl, { signal: controller.signal, cache: 'no-store' });
         if (!response.ok) {
           let message = `Unable to open this PDF (${response.status}).`;
           try {

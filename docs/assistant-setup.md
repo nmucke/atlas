@@ -4,25 +4,59 @@ Atlas supplies a local MCP server, retrieval index, and approval UI. The connect
 
 ## Prepare the research workspace
 
-Run `npm install`, then `npm run assistant:setup` from the Atlas repository. The setup command creates a separate `assistant-workspace` inside your private Atlas data directory. Pass an explicit destination after `--` to choose another directory outside the repository. Existing workspace files are preserved so your custom research instructions are not overwritten.
+For the first run, install and build Atlas, then keep the server running:
 
-The workspace includes `AGENTS.md`, `CLAUDE.md`, five skills, a Claude Desktop configuration fragment, a Claude Code `.mcp.json`, and a Codex `.codex/config.toml`. This keeps research instructions separate from application-development instructions. Source templates are maintained in the repository's `assistant-workspace/` subdirectory; there is no research `AGENTS.md` at the repository root. The server also exposes the instructions through its initialization message, `atlas_get_workflow`, an MCP resource, and named prompts because desktop chat clients do not generally read workspace instruction files automatically.
+```sh
+npm install
+npm run build
+npm start
+```
 
-The generated config uses an absolute Node executable and server path, and points at the same private database used by the app. If you move the repository or replace Node, update those generated paths. Node 24 or newer is required even if a host bundles its own older Node.
+In a second terminal in the repository, run:
+
+```sh
+npm run assistant:setup
+```
+
+Setup automatically registers the local Atlas bridge in the shared ChatGPT Desktop/Codex configuration at `~/.codex/config.toml`, or `$CODEX_HOME/config.toml` when `CODEX_HOME` is set. You do not need a separate Codex CLI installation or to type server settings into ChatGPT. Only Atlas's command, arguments, working directory, tool timeout, and Atlas environment values are added or refreshed. Corpus, other servers, comments, and other preferences are preserved, including any explicit disabled state or per-tool restrictions on Atlas. Re-running setup is safe; unchanged configurations are not rewritten.
+
+Before changing an existing configuration, setup saves an owner-only `config.toml.atlas-backup-<id>` beside it and prints the backup path. Invalid TOML or a conflicting HTTP server named `atlas` causes setup to stop without overwriting that configuration. If another setup is running, wait for it to finish. A lock left by an interrupted setup can be removed at `config.toml.atlas-setup.lock` once no setup process is running.
+
+Setup also creates a separate `assistant-workspace` inside your private Atlas data directory. Pass an explicit destination after `--` to choose another directory outside the repository. Existing research instructions and Claude connection files are preserved. Legacy workspace-local Codex configurations are refreshed too, so they do not override the new connection with obsolete paths or ports.
+
+The workspace includes one canonical `AGENTS.md`, six skills, a Claude Desktop configuration fragment, and a Claude Code `.mcp.json`. Setup links the checked-in `assistant-workspace/AGENTS.md` and each checked-in skill into the private workspace, then links each skill into `.agents/skills/` for Codex and `.claude/skills/` for Claude Code. Skill and instruction updates in the checkout are immediately visible through those links. Setup keeps unrelated host skills intact and saves older Atlas copies under `.atlas-backups/` outside scanned skill folders. Prior custom `AGENTS.md` content is retained as `AGENTS.local.md` for user-specific instructions. An old workspace `CLAUDE.md` is backed up because `AGENTS.md` now holds the shared instructions. Research instructions are never placed at the development repository root.
+
+Launch Codex or Claude Code from the private assistant workspace for local instructions and skill discovery. [OpenAI's skill documentation](https://learn.chatgpt.com/docs/build-skills) specifies `.agents/skills` discovery and symlink support for Codex, including its ChatGPT desktop app. [Claude Code's skill documentation](https://code.claude.com/docs/en/skills) describes `.claude/skills`. Claude Desktop's regular chat does not automatically import these local skill folders; it can use the same workflows through Atlas MCP tools, resources, and prompts. Uploading a skill in Claude's Customize UI is a separate account-level action. ChatGPT web likewise does not read these local folders or the desktop MCP configuration.
+
+## ChatGPT Desktop
+
+After running setup, restart ChatGPT Desktop or restart its MCP connection in Settings. Use `/mcp` in the composer to check that Atlas is connected. Keep the Atlas server running. If you previously disabled Atlas, re-enable it in the MCP server list; setup preserves that preference.
+
+After updating Atlas code, restart the running Atlas server too: the STDIO bridge forwards the tool catalog from that process, so restarting only ChatGPT cannot update an old backend. Then reconnect Atlas in the host and start a fresh session. The current catalog has 18 tools, including `atlas_pdf_inventory`, `atlas_find_pdf`, and `atlas_add_pdf`, and six workflows including `atlas-zotero-maintenance`. If only the original 10 tools appear, check the server process before changing write permissions.
+
+[OpenAI's MCP documentation](https://learn.chatgpt.com/docs/extend/mcp) describes desktop STDIO configuration and the shared configuration used by local Codex clients. ChatGPT web does not read this desktop configuration. Opening this repository in a chat does not itself connect Atlas. This local desktop connection needs no tunnel, public endpoint, or model API key.
 
 ## Claude Desktop
 
-Merge the generated `claude-desktop-config.fragment.json` entry into `mcpServers` in Claude Desktop's configuration. Preserve all existing servers and settings. On macOS the configuration is normally `~/Library/Application Support/Claude/claude_desktop_config.json`; Claude's Developer settings expose its configuration and logs. Restart Claude Desktop and confirm that the Atlas tools are listed.
+Merge the generated `claude-desktop-config.fragment.json` entry into `mcpServers` in Claude Desktop's configuration. Preserve all existing servers and settings. On macOS the configuration is normally `~/Library/Application Support/Claude/claude_desktop_config.json`; Claude's Developer settings expose its configuration and logs. Restart Claude Desktop and confirm that Atlas tools are listed. See [Claude's local MCP documentation](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop).
 
-This is a local stdio connection: Claude starts `server/mcp.ts` as a child process. It does not require the Atlas browser/server to be running, although Atlas's UI must be open to review and approve proposals. Zotero is needed for PDF indexing, library sync, and bibliography export.
+## How the local bridge works
 
-Claude's remote connectors use a different connection path. See [Claude's local MCP documentation](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop) and [local versus remote connection behavior](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp).
+```text
+ChatGPT Desktop / Claude Desktop
+  ↕ MCP over stdin/stdout
+server/mcp-local.ts (launched by the desktop host)
+  ↕ authenticated HTTP to 127.0.0.1
+Atlas server (npm start)
+  ↕ retrieval, validation, and reviewable submissions
+Private Atlas database
+```
 
-## ChatGPT
+Atlas creates an owner-only `assistant-token` file in its data directory on startup (on Windows, file access follows the user directory's ACLs). The bridge reads it automatically and sends it as a bearer credential only to the loopback assistant endpoint. Setup never prints the credential or embeds it in generated configurations. The bridge cannot open the database; the running app dispatches requests through the same registered MCP tools and schemas as before. Approval and human-content editing are not registered assistant tools, and requests carrying assistant credentials are rejected by the ordinary web/review API.
 
-For an account with the necessary permissions, OpenAI documents **Secure MCP Tunnel**, which can forward to a local stdio server over an outbound connection. It requires a tunnel ID, runtime API key, and developer-mode/tunnel access. Follow the official setup, use the same Node command and arguments as the generated Claude fragment, and select the tunnel when adding a developer-mode app in ChatGPT. Atlas does not create an account, provision a tunnel, or store credentials. Connection availability depends on your account and workspace.
+Keep Atlas running whenever you use the assistant. `npm run dev` also supports the bridge. Zotero is needed for PDF indexing, library sync, and bibliography export. Use the same `ATLAS_DATA_DIR` and `ATLAS_PORT` for the app and setup if you customize them. Node 24 or newer is required. Re-run setup and restart the desktop connection after moving the repository or changing Node, the data directory, or the port. The old `server/mcp.ts` command remains a compatibility launcher for the bridge; it now requires the app to be running too.
 
-See [OpenAI's Secure MCP Tunnel setup and permissions](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels). Do not expose Atlas's ordinary web/API port as a public MCP endpoint: it is a localhost application, not an authenticated public service.
+If Atlas is unavailable, start it and retry the tool call. Credential mismatch means the app and bridge use different data directories, or the credential changed; correct the settings and restart the desktop MCP connection. Calls are not automatically retried, to avoid duplicate writes. Long indexing calls may need a larger host tool timeout; the generated Codex configuration allows 600 seconds. To rotate the local credential, stop Atlas, remove `assistant-token` from the private data directory, start Atlas, and restart desktop connections. Do not expose the Atlas port publicly.
 
 ## First conversation
 
@@ -47,3 +81,5 @@ The MCP server offers no approval tool, no SQL tool, no arbitrary filesystem acc
 The database, retrieval chunks, evidence snapshots, profiles, and figures stay in the private Atlas data directory and are covered by its backup. AI generation in Claude/ChatGPT is still provided by that service: retrieved excerpts are sent to the selected model provider. Local storage is not an offline-model guarantee. Assistant memory is not automatically accessible; bring only the preferences you want captured, then approve the saved profile.
 
 A malicious local program running under your account can access your files and localhost APIs. The restricted MCP tool set and instruction separation are workflow boundaries, not OS isolation from software with equivalent user permissions. Source documents are untrusted evidence and must never be treated as tool instructions.
+
+Zotero write authorization is currently held only in Atlas process memory. After restarting Atlas, use **Assistant → Zotero actions → Enable Zotero writes** again and choose **Always Allow** for automatic PDF additions. Restarting the desktop MCP connection alone does not clear this grant.

@@ -247,7 +247,13 @@ export class AtlasDatabase {
     const byPaper = new Map<string, any[]>();
     for (const a of attachments) {
       const list = byPaper.get(a.paper_id) ?? [];
-      list.push({ id: a.id, title: a.title, contentType: a.content_type, filename: a.filename });
+      list.push({
+        id: a.id,
+        title: a.title,
+        contentType: a.content_type,
+        filename: a.filename,
+        hidden: this.getSetting(`hidden-attachment:${a.id}`) === 'true',
+      });
       byPaper.set(a.paper_id, list);
     }
     const atlasTagRows = this.db
@@ -410,7 +416,14 @@ export class AtlasDatabase {
         'SELECT a.*,s.zotero_key,l.prefix,l.server_id FROM attachments a JOIN source_items s ON s.id=a.id JOIN libraries l ON l.id=s.library_id WHERE a.id=? AND s.missing=0',
       )
       .get(id) as
-      | { content_type: string; zotero_key: string; prefix: string; server_id: string | null }
+      | {
+          paper_id: string;
+          filename: string;
+          content_type: string;
+          zotero_key: string;
+          prefix: string;
+          server_id: string | null;
+        }
       | undefined;
   }
 }

@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import type { Paper, Project } from '../shared/types';
 import type { AIRecord, ResearchProfile } from '../shared/assistant';
+import { readableReview } from '../shared/review-text';
+import { ZoteroActions, type ZoteroStatus } from './ZoteroActions';
 import 'katex/dist/katex.min.css';
 import './assistant.css';
 
@@ -27,6 +29,7 @@ export type { AIRecord } from '../shared/assistant';
 interface AssistantSnapshot {
   records: AIRecord[];
   profile: ResearchProfile;
+  zotero: ZoteroStatus;
   index: {
     chunks: number;
     documents: number;
@@ -259,6 +262,12 @@ export function AIRecordCard({
         )}
       </div>
       <h3>{record.title || kindLabel(record.kind)}</h3>
+      {record.readingRecommendation && (
+        <div className="assistant-reading-verdict">
+          <strong>Reading recommendation · {record.readingRecommendation.score}/5</strong>
+          <p>{record.readingRecommendation.reason}</p>
+        </div>
+      )}
       {(paper || project) && (
         <div className="assistant-record-context">
           {paper && (
@@ -295,7 +304,7 @@ export function AIRecordCard({
                   ),
               }}
             >
-              {record.body}
+              {record.kind === 'review' ? readableReview(record.body) : record.body}
             </ReactMarkdown>
           </div>
         ) : (
@@ -481,6 +490,7 @@ interface PageProps {
   profileDraft: string | null;
   onProfileDraftChange: (value: string | null) => void;
   onRefresh: () => Promise<void>;
+  onZoteroChanged: () => Promise<void>;
   onDecision: (id: string, approve: boolean) => Promise<void>;
   onSaveProfile: (text: string) => Promise<void>;
   onRebuildIndex: () => Promise<void>;
@@ -497,6 +507,7 @@ export function AssistantPage({
   profileDraft,
   onProfileDraftChange,
   onRefresh,
+  onZoteroChanged,
   onDecision,
   onSaveProfile,
   onRebuildIndex,
@@ -706,6 +717,7 @@ export function AssistantPage({
               </section>
             </div>
           </div>
+          {data.zotero && <ZoteroActions zotero={data.zotero} onRefresh={onZoteroChanged} />}
           <section className="assistant-queue">
             <div className="assistant-section-heading">
               <div>

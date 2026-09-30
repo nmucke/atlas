@@ -34,7 +34,7 @@ export function chunkText(text: string, size = 2200, overlap = 200) {
   }
   return chunks.length ? chunks : [''];
 }
-function extractPdf(filename: string): Promise<string[]> {
+export function extractPdf(filename: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./pdf-text-worker.ts', import.meta.url), {
       workerData: { filename },
@@ -230,12 +230,14 @@ export class Retrieval {
       pdfErrors: errors ? (JSON.parse(errors) as string[]) : [],
     };
   }
-  async index(includePdfs = true) {
+  async index(includePdfs = true, paperId?: string) {
     this.refresh();
     const errors: string[] = [];
     if (includePdfs) {
       const zotero = new ZoteroClient();
-      for (const paper of this.library.library().papers.filter((p) => !p.sourceMissing))
+      for (const paper of this.library
+        .library()
+        .papers.filter((p) => !p.sourceMissing && (!paperId || p.id === paperId)))
         for (const attachment of paper.attachments.filter(
           (a) => a.contentType === 'application/pdf',
         )) {

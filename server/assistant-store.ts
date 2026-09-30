@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { legacyReadingRecommendation, readableReview } from '../shared/review-text.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   AICandidate,
@@ -103,6 +104,7 @@ function normalizeInput(
       'projectId',
       'title',
       'body',
+      'readingRecommendation',
       'tags',
       'level',
       'candidate',
@@ -116,7 +118,22 @@ function normalizeInput(
   const paperId = identifier(row.paperId, 'paperId');
   const projectId = identifier(row.projectId, 'projectId');
   const title = string(row.title, 'title', 200, true);
-  const body = string(row.body, 'body', 1000000, true);
+  const rawBody = string(row.body, 'body', 1000000, true);
+  const body = kind === 'review' ? readableReview(rawBody) : rawBody;
+  if (!body.trim()) throw new Error('body is required');
+  let readingRecommendation = null;
+  if (row.readingRecommendation != null) {
+    if (kind !== 'review') throw new Error('Reading scores belong in paper reviews');
+    const recommendation = object(row.readingRecommendation, 'readingRecommendation');
+    fields(recommendation, ['score', 'reason'], 'readingRecommendation');
+    const score = recommendation.score;
+    if (typeof score !== 'number' || !Number.isInteger(score) || score < 1 || score > 5)
+      throw new Error('Reading recommendation score must be an integer from 1 to 5');
+    readingRecommendation = {
+      score,
+      reason: string(recommendation.reason, 'reading recommendation reason', 1000, true),
+    };
+  }
   if (kind === 'profile' && body.length > 100000)
     throw new Error('profile must be text under 100000 characters');
   const agentRow = object(row.agent, 'agent');
@@ -155,7 +172,19 @@ function normalizeInput(
   if (kind === 'note' && !projectId) throw new Error('AI notes require a projectId');
   if (kind === 'profile' && (paperId || projectId))
     throw new Error('Profile proposals cannot target a paper or project');
-  return { kind, paperId, projectId, title, body, tags, level, candidate, agent, citations };
+  return {
+    kind,
+    paperId,
+    projectId,
+    title,
+    body,
+    readingRecommendation,
+    tags,
+    level,
+    candidate,
+    agent,
+    citations,
+  };
 }
 
 type AIRow = {
@@ -165,6 +194,7 @@ type AIRow = {
   project_id: string | null;
   title: string;
   body: string;
+  reading_recommendation_json: string | null;
   tags_json: string;
   level: AILevel | null;
   candidate_json: string | null;
@@ -202,6 +232,12 @@ export class AssistantStore {
         this.db.prepare('INSERT INTO schema_migrations(version) VALUES(4)').run();
       });
     }
+    if (!this.db.prepare('SELECT 1 FROM schema_migrations WHERE version=6').get()) {
+      this.transaction(() => {
+        this.db.exec('ALTER TABLE ai_records ADD COLUMN reading_recommendation_json TEXT');
+        this.db.prepare('INSERT INTO schema_migrations(version) VALUES(6)').run();
+      });
+    }
   }
   private transaction<T>(action: () => T): T {
     this.db.exec('BEGIN IMMEDIATE');
@@ -222,6 +258,11 @@ export class AssistantStore {
       projectId: row.project_id,
       title: row.title,
       body: row.body,
+      readingRecommendation: row.reading_recommendation_json
+        ? JSON.parse(row.reading_recommendation_json)
+        : row.kind === 'review'
+          ? legacyReadingRecommendation(row.body)
+          : null,
       tags: JSON.parse(row.tags_json),
       level: row.level,
       candidate: row.candidate_json ? JSON.parse(row.candidate_json) : null,
@@ -275,11 +316,19 @@ export class AssistantStore {
         !this.db.prepare('SELECT id FROM projects WHERE id=?').get(record.projectId)
       )
         throw new Error('Unknown projectId');
+      for (const tag of record.tags) {
+        const existing = this.db
+          .prepare("SELECT description FROM tag_definitions WHERE origin='atlas' AND name=?")
+          .get(tag.name) as { description: string } | undefined;
+        if (existing) tag.description = existing.description;
+        else if (!tag.description.trim())
+          throw new Error(`New tag "${tag.name}" requires a brief description`);
+      }
       this.db
         .prepare(
           `INSERT INTO ai_records(
-        id,kind,paper_id,project_id,title,body,tags_json,level,candidate_json,agent_json,citations_json,status,created_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        id,kind,paper_id,project_id,title,body,tags_json,level,candidate_json,agent_json,citations_json,status,created_at,reading_recommendation_json
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         )
         .run(
           id,
@@ -295,6 +344,7 @@ export class AssistantStore {
           JSON.stringify(record.citations),
           'pending',
           now,
+          record.readingRecommendation ? JSON.stringify(record.readingRecommendation) : null,
         );
     });
     return this.byId(id)!;

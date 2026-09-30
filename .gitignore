@@ -18,3 +18,4 @@ test-results/
 .local/
 data/
 backups/
+assistant-token

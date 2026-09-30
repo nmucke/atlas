@@ -1,26 +1,59 @@
+import { attachmentAvailability, setAttachmentVisibility } from './attachment-availability.ts';
+import { ZoteroClient } from './zotero.ts';
 import type { AIRecordInput, AICandidate, Citation } from '../shared/assistant.ts';
 import { AssistantStore } from './assistant-store.ts';
 import { AtlasDatabase } from './database.ts';
 import { ProjectStore } from './projects.ts';
 import { Retrieval } from './retrieval.ts';
+import { ZoteroWorkflow } from './zotero-workflow.ts';
 
 export class AssistantService {
   library: AtlasDatabase;
   projects: ProjectStore;
   store: AssistantStore;
   retrieval: Retrieval;
+  zotero: ZoteroWorkflow;
   private indexing: Promise<ReturnType<Retrieval['status']>> | null = null;
   constructor(library: AtlasDatabase, projects: ProjectStore) {
     this.library = library;
     this.projects = projects;
     this.store = new AssistantStore(library.db);
     this.retrieval = new Retrieval(library, projects, this.store);
+    this.zotero = new ZoteroWorkflow(library, projects, this.retrieval);
+  }
+  async checkAttachments(runId: string, paperId: string) {
+    this.retrieval.run(runId);
+    const paper = this.library.paper(paperId);
+    if (!paper) throw new Error('Paper not found');
+    const client = new ZoteroClient();
+    const attachments = [];
+    for (const attachment of paper.attachments) {
+      const record = this.library.attachment(attachment.id);
+      attachments.push({
+        ...attachment,
+        ...(record
+          ? await attachmentAvailability(client, record)
+          : { state: 'unknown', message: 'Attachment changed. Sync and recheck.' }),
+      });
+    }
+    return { paperId, attachments };
+  }
+  async attachmentVisibility(runId: string, attachmentId: string, hidden: boolean) {
+    this.retrieval.run(runId);
+    return setAttachmentVisibility(this.library, new ZoteroClient(), attachmentId, hidden);
   }
   status() {
     return {
       records: this.store.list(),
       profile: this.store.getProfile(),
       index: { ...this.retrieval.status(), indexing: !!this.indexing },
+      zotero: {
+        reachable: false,
+        version: null,
+        authorized: false,
+        automaticPdfWrites: false,
+        actions: this.zotero.list(),
+      },
     };
   }
   index(includePdfs = true) {
@@ -29,6 +62,28 @@ export class AssistantService {
       this.indexing = null;
     });
     return this.indexing;
+  }
+  async addPdf(runId: string, candidateId: string) {
+    return this.indexAddedPdf(await this.zotero.addPdf(runId, candidateId));
+  }
+  async retryPdf(runId: string, actionId: string) {
+    return this.indexAddedPdf(await this.zotero.retryPdf(runId, actionId));
+  }
+  private async indexAddedPdf(action: Awaited<ReturnType<ZoteroWorkflow['addPdf']>>) {
+    if (action.status !== 'completed') return action;
+    // PDF upload/sync success remains separate from extraction failures (e.g. scans).
+    if (this.indexing) await this.indexing;
+    this.indexing = this.retrieval.index(true, action.paperId).finally(() => {
+      this.indexing = null;
+    });
+    try {
+      return { ...action, indexing: await this.indexing };
+    } catch (error) {
+      return {
+        ...action,
+        indexing: { error: error instanceof Error ? error.message : 'PDF indexing failed' },
+      };
+    }
   }
   submit(
     input: Omit<AIRecordInput, 'agent' | 'citations'> & {

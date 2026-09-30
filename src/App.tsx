@@ -1,3 +1,4 @@
+import { PaperAttachments } from './PaperAttachments';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
@@ -37,6 +38,8 @@ import type {
 import { CollectionsPage } from './CollectionsPage';
 import { AIRecordList, AssistantPage, InboxRecommendations, useAssistant } from './Assistant';
 import { PaperTags } from './PaperTags';
+import { PaperAISummary } from './PaperAISummary';
+import { Recommendations } from './Recommendations';
 import { Projects } from './Projects';
 import { TagManager, type TagSection } from './TagManager';
 
@@ -166,9 +169,9 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [view, setView] = useState<View>('all');
-  const [page, setPage] = useState<'papers' | 'collections' | 'tags' | 'projects' | 'assistant'>(
-    'papers',
-  );
+  const [page, setPage] = useState<
+    'papers' | 'collections' | 'tags' | 'projects' | 'assistant' | 'recommendations'
+  >('papers');
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -234,6 +237,28 @@ export default function App() {
   const refreshProjectData = useCallback(async () => {
     await Promise.all([loadProjects(), load()]);
   }, [loadProjects, load]);
+
+  const onZoteroChanged = async () => {
+    await Promise.all([assistant.refresh(), refreshProjectData()]);
+  };
+
+  const completedZoteroRevision = useRef<string | null>(null);
+  useEffect(() => {
+    if (!assistant.data?.zotero) return;
+    const revision = assistant.data.zotero.actions
+      .filter((action) => action.status === 'completed')
+      .map((action) => `${action.id}:${action.updatedAt}`)
+      .sort()
+      .join('|');
+    if (completedZoteroRevision.current === null) {
+      completedZoteroRevision.current = revision;
+      return;
+    }
+    if (completedZoteroRevision.current !== revision) {
+      completedZoteroRevision.current = revision;
+      void refreshProjectData();
+    }
+  }, [assistant.data?.zotero, refreshProjectData]);
 
   const decideAI = async (id: string, approve: boolean) => {
     await assistant.decide(id, approve);
@@ -355,20 +380,24 @@ export default function App() {
     (selectedDraft.summary !== selected.summary || selectedDraft.notes !== selected.notes);
   const activeCollection = collections.find((item) => item.id === collectionId);
   const title =
-    page === 'assistant'
-      ? 'Assistant'
-      : page === 'projects'
-        ? (projects.find((project) => project.id === projectId)?.name ?? 'Dashboard')
-        : page === 'collections'
-          ? 'Collections'
-          : page === 'tags'
-            ? tagSection === 'all'
-              ? 'All tags'
-              : tagSection === 'zotero'
-                ? 'Zotero tags'
-                : tagSection
-            : (activeCollection?.name ??
-              (tag ? `# ${tag.name}` : (nav.find((item) => item.id === view)?.label ?? 'Library')));
+    page === 'recommendations'
+      ? 'Recommendations'
+      : page === 'assistant'
+        ? 'Assistant'
+        : page === 'projects'
+          ? (projects.find((project) => project.id === projectId)?.name ?? 'Dashboard')
+          : page === 'collections'
+            ? 'Collections'
+            : page === 'tags'
+              ? tagSection === 'all'
+                ? 'All tags'
+                : tagSection === 'zotero'
+                  ? 'Zotero tags'
+                  : tagSection
+              : (activeCollection?.name ??
+                (tag
+                  ? `# ${tag.name}`
+                  : (nav.find((item) => item.id === view)?.label ?? 'Library')));
   const isSyncing = syncing || !!info?.sync.syncing;
   const isTagContext = page === 'tags' || tag !== null;
 
@@ -553,8 +582,9 @@ export default function App() {
   const openPdf = (paper: Paper) => {
     const attachment = paper.attachments.find(
       (item) =>
-        item.contentType.toLowerCase().includes('pdf') ||
-        item.filename.toLowerCase().endsWith('.pdf'),
+        !item.hidden &&
+        (item.contentType.toLowerCase().includes('pdf') ||
+          item.filename.toLowerCase().endsWith('.pdf')),
     );
     if (attachment) setReader({ paperId: paper.id, attachmentId: attachment.id });
   };
@@ -610,6 +640,21 @@ export default function App() {
                     <span className="nav-count">{counts[item.id]}</span>
                   </button>
                 ))}
+                <button
+                  className={`nav-item nav-item-nested${page === 'recommendations' ? ' active' : ''}`}
+                  aria-current={page === 'recommendations' ? 'page' : undefined}
+                  onClick={() => {
+                    if (!mayLeaveProject()) return;
+                    setProjectDirty(false);
+                    setPage('recommendations');
+                    setCollectionId(null);
+                    setTag(null);
+                    setMobileNav(false);
+                  }}
+                >
+                  <Sparkles size={17} strokeWidth={1.9} />
+                  <span>Recommendations</span>
+                </button>
                 <button
                   className={`nav-item nav-item-nested${page === 'collections' || !!collectionId ? ' active' : ''}`}
                   onClick={() => {
@@ -837,10 +882,28 @@ export default function App() {
           <section
             className={`library-panel${page === 'projects' ? ' projects-panel' : ''}`}
             aria-label={
-              page === 'projects' ? 'Projects' : page === 'assistant' ? 'Assistant' : 'Papers'
+              page === 'projects'
+                ? 'Projects'
+                : page === 'assistant'
+                  ? 'Assistant'
+                  : page === 'recommendations'
+                    ? 'Recommendations'
+                    : 'Papers'
             }
           >
-            {page === 'assistant' ? (
+            {page === 'recommendations' ? (
+              <Recommendations
+                records={assistant.data?.records ?? []}
+                papers={papers}
+                projects={projects}
+                loading={assistant.loading}
+                error={assistant.error}
+                onRefresh={assistant.refresh}
+                onDecision={decideAI}
+                onOpenPaper={openAIPaper}
+                onOpenProject={chooseProject}
+              />
+            ) : page === 'assistant' ? (
               <AssistantPage
                 data={assistant.data}
                 loading={assistant.loading}
@@ -850,6 +913,7 @@ export default function App() {
                 profileDraft={assistant.profileDraft}
                 onProfileDraftChange={assistant.setProfileDraft}
                 onRefresh={assistant.refresh}
+                onZoteroChanged={onZoteroChanged}
                 onDecision={decideAI}
                 onSaveProfile={assistant.saveProfile}
                 onRebuildIndex={assistant.rebuildIndex}
@@ -1050,8 +1114,9 @@ export default function App() {
                     visiblePapers.map((paper) => {
                       const pdf = paper.attachments.some(
                         (item) =>
-                          item.contentType.toLowerCase().includes('pdf') ||
-                          item.filename.toLowerCase().endsWith('.pdf'),
+                          !item.hidden &&
+                          (item.contentType.toLowerCase().includes('pdf') ||
+                            item.filename.toLowerCase().endsWith('.pdf')),
                       );
                       return (
                         <article
@@ -1171,7 +1236,7 @@ export default function App() {
                 </div>
               </div>
               {selected ? (
-                <div className="inspector-scroll">
+                <div className="inspector-scroll" key={selected.id}>
                   <div className="inspector-intro">
                     <div className="inspector-type">
                       <FileText size={15} /> {itemTypeLabel(selected.itemType)}{' '}
@@ -1222,36 +1287,30 @@ export default function App() {
                     </div>
                   </div>
                   {!!selected.attachments.length && (
-                    <div className="inspector-section">
-                      <div className="section-label">ATTACHMENTS</div>
-                      {selected.attachments.map((item) => {
-                        const isPdf =
-                          item.contentType.toLowerCase().includes('pdf') ||
-                          item.filename.toLowerCase().endsWith('.pdf');
-                        return (
-                          <div className="attachment-row" key={item.id}>
-                            <div className="attachment-icon">
-                              <FileText size={19} />
-                            </div>
-                            <div className="attachment-copy">
-                              <strong>{item.title || item.filename || 'Attachment'}</strong>
-                              <span>{isPdf ? 'PDF DOCUMENT' : item.contentType || 'FILE'}</span>
-                            </div>
-                            {isPdf && (
-                              <button
-                                aria-label={`Read ${item.title || item.filename}`}
-                                title="Read PDF"
-                                onClick={() =>
-                                  setReader({ paperId: selected.id, attachmentId: item.id })
-                                }
-                              >
-                                <ArrowUpRight size={17} />
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <PaperAttachments
+                      key={`attachments:${selected.id}`}
+                      attachments={selected.attachments}
+                      onVisibilityChange={(id, hidden) =>
+                        setLibrary((previous) =>
+                          previous
+                            ? {
+                                ...previous,
+                                papers: previous.papers.map((paper) =>
+                                  paper.id === selected.id
+                                    ? {
+                                        ...paper,
+                                        attachments: paper.attachments.map((item) =>
+                                          item.id === id ? { ...item, hidden } : item,
+                                        ),
+                                      }
+                                    : paper,
+                                ),
+                              }
+                            : previous,
+                        )
+                      }
+                      onRead={(id) => setReader({ paperId: selected.id, attachmentId: id })}
+                    />
                   )}
                   <div className="inspector-section">
                     <div className="section-label">OVERVIEW</div>
@@ -1325,7 +1384,7 @@ export default function App() {
                     </div>
                   )}
                   <PaperTags
-                    key={selected.id}
+                    key={`tags:${selected.id}`}
                     paper={selected}
                     tags={tags}
                     onChange={(nextTags) => updatePaperTags(selected, nextTags)}
@@ -1344,9 +1403,10 @@ export default function App() {
                       </div>
                     </div>
                   )}
+                  <PaperAISummary records={assistant.data?.records ?? []} paperId={selected.id} />
                   <div className="inspector-section note-section">
                     <div className="section-label">
-                      <span>YOUR SUMMARY</span>
+                      <span>HUMAN SUMMARY</span>
                       <span className="private-label">PRIVATE</span>
                     </div>
                     <textarea
@@ -1354,7 +1414,7 @@ export default function App() {
                       onChange={(event) => updateDraft(selected, 'summary', event.target.value)}
                       placeholder="Capture the main idea in your own words…"
                       rows={4}
-                      aria-label="Your summary"
+                      aria-label="Human summary"
                     />
                   </div>
                   <div className="inspector-section note-section">
@@ -1426,7 +1486,12 @@ export default function App() {
                 </div>
               }
             >
-              <PdfReader paper={paper} attachment={attachment} onClose={() => setReader(null)} />
+              <PdfReader
+                key={`${paper.id}:${attachment.id}`}
+                paper={paper}
+                attachment={attachment}
+                onClose={() => setReader(null)}
+              />
             </Suspense>
           ) : null;
         })()}

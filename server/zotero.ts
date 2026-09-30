@@ -29,8 +29,11 @@ export class ZoteroClient {
           'Zotero access is disabled. Enable “Allow other applications on this computer to communicate with Zotero” in Settings → Advanced.',
         );
       if (response.status === 404)
-        throw new Error(
-          'Zotero could not find this resource. For PDFs, download the attachment in Zotero first.',
+        throw Object.assign(
+          new Error(
+            'Zotero could not find this resource. For PDFs, download the attachment in Zotero first.',
+          ),
+          { status: 404 },
         );
       if (response.status === 412)
         throw new Error(

@@ -25,6 +25,7 @@ export interface Paper {
   sourceMissing?: boolean;
 }
 export interface Attachment {
+  hidden?: boolean;
   id: string;
   title: string;
   contentType: string;

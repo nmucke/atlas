@@ -1,31 +1,55 @@
-import { mkdir, cp, writeFile, access } from 'node:fs/promises';
+import { mkdir, writeFile, access, lstat, rename, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import {
+  installAssistantInstructions,
+  installAssistantSkillLinks,
+  registerAssistant,
+  sharedCodexConfig,
+  generatedClaudeInstructionsHash,
+  hashInstructions,
+} from './register-assistant.ts';
+import { assistantOrigin } from '../server/assistant-access.ts';
 import { atlasDataDirectory } from '../server/paths.ts';
 process.umask(0o077);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dataDirectory = atlasDataDirectory();
+const origin = assistantOrigin();
+const port = new URL(origin).port;
 const workspace = resolve(process.argv[2] || join(dataDirectory, 'assistant-workspace'));
 if (workspace === root.slice(0, -1) || workspace.startsWith(root))
   throw new Error('Choose an assistant workspace outside the development repository.');
 await mkdir(workspace, { recursive: true, mode: 0o700 });
-for (const name of ['AGENTS.md', 'CLAUDE.md', 'skills']) {
-  const destination = join(workspace, name);
-  try {
-    await access(destination);
-    console.log(`Keeping existing ${destination}`);
-  } catch {
-    await cp(join(root, 'assistant-workspace', name), destination, {
-      recursive: true,
-      force: false,
-      errorOnExist: true,
-    });
+const instructionBackup = await installAssistantInstructions(
+  workspace,
+  join(root, 'assistant-workspace', 'AGENTS.md'),
+);
+if (instructionBackup)
+  console.log(`Preserved previous research instructions in ${instructionBackup}`);
+const legacyClaude = join(workspace, 'CLAUDE.md');
+try {
+  await lstat(legacyClaude);
+  const old = await readFile(legacyClaude, 'utf8');
+  const backupDir = join(workspace, '.atlas-backups');
+  await mkdir(backupDir, { recursive: true, mode: 0o700 });
+  const backup = join(backupDir, `CLAUDE-${randomUUID()}.md`);
+  await rename(legacyClaude, backup);
+  if (hashInstructions(old) !== generatedClaudeInstructionsHash) {
+    await writeFile(join(workspace, 'AGENTS.local.md'), old, { flag: 'wx', mode: 0o600 }).catch(
+      (error) => {
+        if (error.code !== 'EEXIST') throw error;
+      },
+    );
   }
+  console.log(`Preserved obsolete Claude instructions in ${backup}`);
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
 }
 const server = {
   command: process.execPath,
-  args: ['--experimental-strip-types', join(root, 'server', 'mcp.ts')],
-  env: { ATLAS_DATA_DIR: dataDirectory },
+  args: ['--experimental-strip-types', join(root, 'server', 'mcp-local.ts')],
+  env: { ATLAS_DATA_DIR: dataDirectory, ATLAS_PORT: port },
 };
 const config = { mcpServers: { atlas: server } };
 async function createOnly(path: string, body: string) {
@@ -39,23 +63,20 @@ await createOnly(
   JSON.stringify(config, null, 2) + '\n',
 );
 await createOnly(join(workspace, '.mcp.json'), JSON.stringify(config, null, 2) + '\n');
-await mkdir(join(workspace, '.codex'), { recursive: true });
-await createOnly(
-  join(workspace, '.codex', 'config.toml'),
-  `[mcp_servers.atlas]\ncommand = ${JSON.stringify(server.command)}\nargs = ${JSON.stringify(server.args)}\n[mcp_servers.atlas.env]\nATLAS_DATA_DIR = ${JSON.stringify(dataDirectory)}\n`,
-);
-for (const host of ['.agents', '.claude']) {
-  await mkdir(join(workspace, host), { recursive: true });
-  try {
-    await access(join(workspace, host, 'skills'));
-  } catch {
-    await cp(join(workspace, 'skills'), join(workspace, host, 'skills'), {
-      recursive: true,
-      errorOnExist: true,
-      force: false,
-    });
-  }
+const registration = await registerAssistant(sharedCodexConfig(), server, workspace);
+// Refresh the legacy project-local entry if setup created one in an earlier release.
+// New workspaces use only the shared registration, avoiding stale local overrides.
+try {
+  await access(join(workspace, '.codex', 'config.toml'));
+  await registerAssistant(join(workspace, '.codex', 'config.toml'), server, workspace);
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
 }
+const skillBackups = await installAssistantSkillLinks(
+  workspace,
+  join(root, 'assistant-workspace', 'skills'),
+);
+for (const backup of skillBackups) console.log(`Preserved previous skill in ${backup}`);
 console.log(
-  `Atlas research workspace: ${workspace}\nClaude Desktop connection fragment: ${join(workspace, 'claude-desktop-config.fragment.json')}\nMCP uses the existing Atlas database. Existing files were preserved. No app settings or external connections were changed.`,
+  `Atlas research workspace: ${workspace}\nChatGPT Desktop / Codex: Atlas ${registration.changed ? 'registered' : 'already registered'} in ${registration.filename}\n${registration.backup ? `Previous configuration backed up to ${registration.backup}\n` : ''}Restart ChatGPT Desktop or its MCP connection, then use /mcp to check Atlas. No manual server entry is needed.\n\nKeep Atlas running with npm start (or npm run dev) at ${origin}. The bridge reads its credential automatically; setup never prints it.\nClaude Desktop connection fragment: ${join(workspace, 'claude-desktop-config.fragment.json')}\nCodex and Claude Code skill entries link to ${join(root, 'assistant-workspace', 'skills')}. Run those agents from this workspace for local skill discovery. Desktop chats can retrieve workflows through Atlas MCP. Previous instructions and skills were preserved under ${join(workspace, '.atlas-backups')} when migration was needed. Other shared settings and MCP servers were preserved. Re-run setup after changing Node, checkout location, data directory, or port.`,
 );

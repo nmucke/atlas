@@ -2,6 +2,11 @@ export type AIKind = 'review' | 'tags' | 'recommendation' | 'note' | 'profile';
 export type AIStatus = 'pending' | 'approved' | 'rejected';
 export type AILevel = 'essential' | 'recommended' | 'optional';
 
+export interface ReadingRecommendation {
+  score: number;
+  reason: string;
+}
+
 export interface Citation {
   chunkId: string;
   sourceId: string;
@@ -27,6 +32,7 @@ export interface AIRecord {
   projectId: string | null;
   title: string;
   body: string;
+  readingRecommendation: ReadingRecommendation | null;
   tags: { name: string; description: string }[];
   level: AILevel | null;
   candidate: AICandidate | null;
@@ -43,6 +49,7 @@ export interface AIRecordInput {
   projectId?: string | null;
   title: string;
   body: string;
+  readingRecommendation?: ReadingRecommendation | null;
   tags?: { name: string; description: string }[];
   level?: AILevel | null;
   candidate?: AICandidate | null;

@@ -977,6 +977,29 @@ p {
   white-space: pre-wrap;
   margin: 0;
 }
+.ai-summary-section .section-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ai-summary-body {
+  color: #455445;
+  font-size: 11.5px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.ai-summary-source,
+.ai-summary-empty {
+  color: #91a18b;
+  font-size: 10px;
+}
+.ai-summary-empty {
+  margin: 0;
+}
+.ai-summary-source {
+  display: block;
+  margin-top: 10px;
+}
 .inspector-tags {
   display: flex;
   gap: 6px;
@@ -2148,4 +2171,103 @@ p {
 .inspector-type {
   text-transform: none;
   letter-spacing: 0.35px;
+}
+
+.paper-attachments {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.attachment-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+.attachment-heading .section-label {
+  margin: 0;
+}
+.paper-attachments button {
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 500;
+  cursor: pointer;
+}
+.attachment-heading > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: #697c66;
+  padding: 4px 6px;
+  border-radius: 5px;
+}
+.paper-attachments button:hover {
+  background: #eef3eb;
+}
+.paper-attachments button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.paper-attachments button:focus-visible,
+.attachment-group > summary:focus-visible {
+  outline: 2px solid #789375;
+  outline-offset: 3px;
+}
+.attachment-group {
+  margin-top: 10px;
+  border-top: 1px solid #e9ece6;
+  padding-top: 10px;
+}
+.attachment-group > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #657160;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.attachment-group > summary::-webkit-details-marker {
+  display: none;
+}
+.attachment-group > summary > span {
+  margin-left: auto;
+  background: #f1f4ed;
+  border-radius: 10px;
+  min-width: 20px;
+  text-align: center;
+  font-size: 10px;
+}
+.attachment-group[open] > summary > svg {
+  transform: rotate(90deg);
+}
+.attachment-group > p {
+  margin: 8px 0 12px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #7b8577;
+}
+.attachment-group > .attachment-row {
+  margin-top: 8px;
+}
+.paper-attachments .attachment-icon {
+  flex-shrink: 0;
+}
+.paper-attachments .attachment-copy span {
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 10px;
+  color: #7b8577;
+  line-height: 1.5;
+}
+.paper-attachments .attachment-copy button {
+  justify-self: start;
+  padding: 3px 0;
+  margin-top: 3px;
+  font-size: 10px;
 }
