@@ -7,6 +7,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpen,
+  Bookmark,
   Check,
   ChevronDown,
   ChevronRight,
@@ -17,6 +18,8 @@ import {
   LibraryBig,
   LoaderCircle,
   Menu,
+  Newspaper,
+  Radar,
   LayoutDashboard,
   PanelRightClose,
   RefreshCw,
@@ -41,6 +44,8 @@ import { PaperTags } from './PaperTags';
 import { PaperAISummary } from './PaperAISummary';
 import { Recommendations } from './Recommendations';
 import { Projects } from './Projects';
+import { News, newsTitles, useNewsSummary, type NewsView } from './News';
+import { NewsSources } from './NewsSources';
 import { TagManager, type TagSection } from './TagManager';
 
 const PdfReader = lazy(() => import('./PdfReader'));
@@ -60,6 +65,14 @@ const nav: { id: View; label: string; icon: typeof Inbox }[] = [
   { id: 'starred', label: 'Starred', icon: Star },
   { id: 'archived', label: 'Archived', icon: Archive },
 ];
+
+const newsIcons: Record<NewsView, typeof Inbox> = {
+  today: Newspaper,
+  saved: Bookmark,
+  added: Check,
+  dismissed: Archive,
+  sources: Radar,
+};
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -170,10 +183,12 @@ export default function App() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [view, setView] = useState<View>('all');
   const [page, setPage] = useState<
-    'papers' | 'collections' | 'tags' | 'projects' | 'assistant' | 'recommendations'
+    'papers' | 'collections' | 'tags' | 'projects' | 'assistant' | 'recommendations' | 'news'
   >('papers');
+  const [newsView, setNewsView] = useState<NewsView>('today');
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [projectsOpen, setProjectsOpen] = useState(true);
+  const [newsOpen, setNewsOpen] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
@@ -197,6 +212,7 @@ export default function App() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const assistant = useAssistant();
+  const newsSummary = useNewsSummary();
 
   const load = useCallback(async (showLoader = false) => {
     if (showLoader) setLoading(true);
@@ -380,24 +396,26 @@ export default function App() {
     (selectedDraft.summary !== selected.summary || selectedDraft.notes !== selected.notes);
   const activeCollection = collections.find((item) => item.id === collectionId);
   const title =
-    page === 'recommendations'
-      ? 'Recommendations'
-      : page === 'assistant'
-        ? 'Assistant'
-        : page === 'projects'
-          ? (projects.find((project) => project.id === projectId)?.name ?? 'Dashboard')
-          : page === 'collections'
-            ? 'Collections'
-            : page === 'tags'
-              ? tagSection === 'all'
-                ? 'All tags'
-                : tagSection === 'zotero'
-                  ? 'Zotero tags'
-                  : tagSection
-              : (activeCollection?.name ??
-                (tag
-                  ? `# ${tag.name}`
-                  : (nav.find((item) => item.id === view)?.label ?? 'Library')));
+    page === 'news'
+      ? newsTitles[newsView]
+      : page === 'recommendations'
+        ? 'Recommendations'
+        : page === 'assistant'
+          ? 'Assistant'
+          : page === 'projects'
+            ? (projects.find((project) => project.id === projectId)?.name ?? 'Dashboard')
+            : page === 'collections'
+              ? 'Collections'
+              : page === 'tags'
+                ? tagSection === 'all'
+                  ? 'All tags'
+                  : tagSection === 'zotero'
+                    ? 'Zotero tags'
+                    : tagSection
+                : (activeCollection?.name ??
+                  (tag
+                    ? `# ${tag.name}`
+                    : (nav.find((item) => item.id === view)?.label ?? 'Library')));
   const isSyncing = syncing || !!info?.sync.syncing;
   const isTagContext = page === 'tags' || tag !== null;
 
@@ -413,6 +431,16 @@ export default function App() {
     setProjectDirty(false);
     setPage('projects');
     setProjectId(id);
+    setMobileNav(false);
+  };
+
+  const chooseNews = (next: NewsView) => {
+    if (!mayLeaveProject()) return;
+    setProjectDirty(false);
+    setPage('news');
+    setNewsView(next);
+    setCollectionId(null);
+    setTag(null);
     setMobileNav(false);
   };
 
@@ -710,31 +738,57 @@ export default function App() {
                 ))}
               </nav>
             )}
-            <div className="sidebar-heading future-heading">NEWS</div>
-            <div className="nav-item disabled" aria-disabled="true" title="Coming soon">
-              <BookOpen size={17} strokeWidth={1.9} />
-              <span>News</span>
-              <span className="soon">SOON</span>
-            </div>
           </div>
           <div className="sidebar-group">
-            <div className="sidebar-heading">ASSISTANT</div>
-            <nav aria-label="Assistant">
-              <button
-                className={`nav-item nav-item-nested${page === 'assistant' ? ' active' : ''}`}
-                onClick={chooseAssistant}
-                aria-current={page === 'assistant' ? 'page' : undefined}
-              >
-                <Sparkles size={17} strokeWidth={1.9} />
-                <span>Profile & queue</span>
-                {!!assistant.data?.records.filter((record) => record.status === 'pending')
-                  .length && (
-                  <span className="nav-count">
-                    {assistant.data.records.filter((record) => record.status === 'pending').length}
-                  </span>
-                )}
-              </button>
-            </nav>
+            <button
+              className="sidebar-heading sidebar-disclosure"
+              onClick={() => setNewsOpen((open) => !open)}
+              aria-expanded={newsOpen}
+              aria-controls="news-navigation"
+            >
+              NEWS {newsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </button>
+            {newsOpen && (
+              <nav aria-label="News" id="news-navigation">
+                {(['today', 'saved', 'added', 'dismissed', 'sources'] as const).map((item) => {
+                  const active = page === 'news' && newsView === item;
+                  const count =
+                    item === 'today'
+                      ? newsSummary.counts?.new
+                      : item === 'sources'
+                        ? newsSummary.suggestions
+                        : newsSummary.counts?.[item];
+                  const Icon = newsIcons[item];
+                  return (
+                    <button
+                      key={item}
+                      className={`nav-item nav-item-nested${active ? ' active' : ''}`}
+                      onClick={() => chooseNews(item)}
+                      aria-current={active ? 'page' : undefined}
+                    >
+                      <Icon size={17} strokeWidth={1.9} />
+                      <span>{newsTitles[item]}</span>
+                      {item === 'today' && !!count ? (
+                        <span
+                          className="news-nav-badge"
+                          title={`${count} new · ${newsSummary.counts?.untriaged ?? 0} not ranked yet`}
+                        >
+                          {count}
+                        </span>
+                      ) : item === 'sources' ? (
+                        !!count && (
+                          <span className="nav-count" title={`${count} suggested sources waiting`}>
+                            {count} new
+                          </span>
+                        )
+                      ) : (
+                        count !== undefined && <span className="nav-count">{count}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
+            )}
           </div>
           <div className="sidebar-group sidebar-dynamic">
             <button
@@ -781,6 +835,25 @@ export default function App() {
               </nav>
             )}
           </div>
+          <div className="sidebar-group">
+            <div className="sidebar-heading">ASSISTANT</div>
+            <nav aria-label="Assistant">
+              <button
+                className={`nav-item nav-item-nested${page === 'assistant' ? ' active' : ''}`}
+                onClick={chooseAssistant}
+                aria-current={page === 'assistant' ? 'page' : undefined}
+              >
+                <Sparkles size={17} strokeWidth={1.9} />
+                <span>Profile & queue</span>
+                {!!assistant.data?.records.filter((record) => record.status === 'pending')
+                  .length && (
+                  <span className="nav-count">
+                    {assistant.data.records.filter((record) => record.status === 'pending').length}
+                  </span>
+                )}
+              </button>
+            </nav>
+          </div>
         </div>
         <div className="sidebar-footer">
           <div className="sync-orbit">
@@ -815,22 +888,26 @@ export default function App() {
             <button
               className="breadcrumb-link"
               onClick={() =>
-                page === 'assistant'
-                  ? chooseAssistant()
-                  : page === 'projects'
-                    ? chooseProject(null)
-                    : isTagContext
-                      ? chooseTagSection('all')
-                      : chooseView('all')
+                page === 'news'
+                  ? chooseNews('today')
+                  : page === 'assistant'
+                    ? chooseAssistant()
+                    : page === 'projects'
+                      ? chooseProject(null)
+                      : isTagContext
+                        ? chooseTagSection('all')
+                        : chooseView('all')
               }
             >
-              {page === 'assistant'
-                ? 'Workspace'
-                : page === 'projects'
-                  ? 'Projects'
-                  : isTagContext
-                    ? 'Tags'
-                    : 'Library'}
+              {page === 'news'
+                ? 'News'
+                : page === 'assistant'
+                  ? 'Workspace'
+                  : page === 'projects'
+                    ? 'Projects'
+                    : isTagContext
+                      ? 'Tags'
+                      : 'Library'}
             </button>
             <ChevronRight size={14} />
             <strong>{title}</strong>
@@ -888,10 +965,27 @@ export default function App() {
                   ? 'Assistant'
                   : page === 'recommendations'
                     ? 'Recommendations'
-                    : 'Papers'
+                    : page === 'news'
+                      ? 'News'
+                      : 'Papers'
             }
           >
-            {page === 'recommendations' ? (
+            {page === 'news' ? (
+              newsView === 'sources' ? (
+                <NewsSources onChanged={() => void newsSummary.refresh()} />
+              ) : (
+                <News
+                  view={newsView}
+                  projects={projects}
+                  collections={collections}
+                  onOpenPaper={openAIPaper}
+                  onOpenProject={chooseProject}
+                  onOpenSources={() => chooseNews('sources')}
+                  onLibraryChanged={refreshProjectData}
+                  onCounts={newsSummary.setCounts}
+                />
+              )
+            ) : page === 'recommendations' ? (
               <Recommendations
                 records={assistant.data?.records ?? []}
                 papers={papers}

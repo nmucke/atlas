@@ -162,7 +162,7 @@ test(
       await client.connect(transport);
       assert.match(client.getInstructions() ?? '', /Only the human/);
       const tools = (await client.listTools()).tools;
-      assert.equal(tools.length, 18);
+      assert.equal(tools.length, 24);
       assert.equal(
         tools.some((tool) => /approve|decide/.test(tool.name)),
         false,
@@ -171,7 +171,7 @@ test(
       assert.ok(
         (await client.readResource({ uri: 'atlas://assistant/instructions' })).contents.length,
       );
-      assert.equal((await client.listPrompts()).prompts.length, 6);
+      assert.equal((await client.listPrompts()).prompts.length, 8);
       assert.ok((await client.getPrompt({ name: 'atlas-review-paper' })).messages.length);
       const call = async (name: string, args: Record<string, unknown>) => {
         const result = await client.callTool({ name, arguments: args });

@@ -532,6 +532,75 @@ export class ZoteroWorkflow {
       );
     return this.runPdf(id);
   }
+  /** Re-reads Zotero into Atlas through the same queue that action writes use. */
+  syncLibrary() {
+    return this.sync();
+  }
+  /**
+   * Attaches a PDF from a URL Atlas derived itself (for example arxiv.org/pdf/<id>) to a paper the
+   * user just added. No assistant run is needed; the title and first author are still verified
+   * and the addition is tracked as a normal, retryable PDF action.
+   */
+  async attachPdfFromUrl(
+    paperId: string,
+    url: string,
+    requestedBy: string,
+    reason: string,
+  ): Promise<ZoteroAction> {
+    const pdfUrl = publicHttpsUrl(url).href;
+    const source = this.source(paperId);
+    const active = this.library.db
+      .prepare(
+        "SELECT * FROM zotero_actions WHERE kind='pdf' AND paper_id=? AND status IN ('running','write_done')",
+      )
+      .get(source.id) as ActionRow | undefined;
+    if (active) return this.row(active);
+    const current = await this.live(source);
+    if (current.deleted || current.itemType === 'attachment')
+      throw new Error('Cannot attach a PDF to this item');
+    await this.checkExistingPdfs(source, await this.childItems(source));
+    const pdf = await this.downloader(pdfUrl);
+    if (pdf.length > 40 * 1024 * 1024 || !pdf.subarray(0, 1024).includes(Buffer.from('%PDF-')))
+      throw new Error('Candidate is not a valid PDF within the 40 MiB verification limit');
+    const creator = current.creators?.[0];
+    verifyPdfIdentity(await this.extractCandidate(pdf), {
+      title: String(current.title ?? ''),
+      doi: '',
+      author: String(creator?.lastName ?? creator?.name ?? ''),
+    });
+    const id = randomUUID(),
+      now = new Date().toISOString();
+    this.library.db
+      .prepare(`INSERT INTO zotero_actions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(
+        id,
+        'pdf',
+        source.id,
+        null,
+        `Add PDF to ${String(current.title ?? 'paper').slice(0, 150)}`,
+        reason.slice(0, 4000),
+        pdfUrl,
+        pdfUrl,
+        null,
+        JSON.stringify({
+          title: String(current.title ?? ''),
+          doi: String(current.DOI ?? ''),
+          pdfHash: this.downloadCache.put(pdf),
+        }),
+        JSON.stringify({ name: requestedBy, model: '' }),
+        '[]',
+        'running',
+        null,
+        source.serverId,
+        source.prefix,
+        source.key,
+        current.version,
+        attachmentKey(),
+        now,
+        now,
+      );
+    return this.runPdf(id);
+  }
   async retryPdf(runId: string, id: string) {
     this.retrieval.run(runId);
     const row = this.get(id);

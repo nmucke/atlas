@@ -42,7 +42,7 @@ The test suite is available with `npm test`.
 
 Browse a Zotero library in inbox, reading, and read views; star or archive papers; search and filter by collection or tag; and keep a manual summary, notes, and page-linked notes for PDF passages. Atlas syncs bibliographic metadata, tags, collections, and attachment details from Zotero. Your Atlas tags, tag descriptions, summary, notes, reading status, starred state, and archive state remain local when Zotero metadata syncs.
 
-Page-linked PDF notes are stored in Atlas. They are not graphical annotations drawn onto the PDF. Summaries are written by you; Atlas does not generate them automatically. Projects are available as a local research workspace. News is planned.
+Page-linked PDF notes are stored in Atlas. They are not graphical annotations drawn onto the PDF. Summaries are written by you; Atlas does not generate them automatically. Projects are available as a local research workspace, and News collects new work from sources you choose.
 
 ## Organizing your library
 
@@ -66,9 +66,13 @@ Each project has multiple notes, organized with folders, search, pins, and an ar
 
 Use **Save** or **Cmd/Ctrl+S** to persist notes to SQLite. Unsaved note drafts are kept in this browser's local storage as a recovery aid when switching pages. Drafts are not part of the SQLite backup until saved; use the same browser and local address to recover them. Archive notes to hide them without deleting them; open the archive to restore them.
 
+## News
+
+**News** shows new papers, blog posts and releases from sources you add in **News → Sources**: paste an arXiv category such as `stat.ML`, a blog or journal URL, a GitHub repository, an OpenAlex author or work, or plain keywords into **Add a source**, and Atlas detects what it is. Remove a source with one click. Atlas collects only when you press **Refresh** or ask your assistant to run the `atlas-news-scan` workflow; nothing runs on a schedule. Items are ranked by a local relevance score, and the assistant can add a 1–5 score with a "why this matters" note citing your library. Save or dismiss items, or use **Add to Zotero** to create the item in a chosen collection, put it in your Inbox, link it to a project and optionally attach its PDF. OpenAlex sources need a free API key, set in News → Sources. See [News design](docs/news-design.md).
+
 ## AI research assistant
 
-The **Assistant** page holds a saved research profile, retrieval-index controls, and a review queue. Connect Claude Desktop or another local MCP host to use six workflows: profile and tag setup, paper reviews, reading recommendations, project references, research notes, and Zotero PDF and duplicate maintenance. AI-authored reviews remain separate from human summaries. Paper reviews include a 1–5 reading score and brief rationale; **Library → Recommendations** shows the latest scored reviews and suggested project fits. Accepting a project suggestion links the paper to that project. Reviews keep internal evidence IDs out of the prose, with sources in the expandable Evidence section. Proposed tags prefer the existing vocabulary, require descriptions for new tags, and need approval before assignment; approved project notes retain AI attribution. Recommendations appear in Inbox with Essential, Recommended, or Optional strength, and project recommendations can be approved to link existing papers.
+The **Assistant** page holds a saved research profile, retrieval-index controls, and a review queue. Connect Claude Desktop or another local MCP host to use eight workflows: profile and tag setup, paper reviews, reading recommendations, project references, research notes, Zotero PDF and duplicate maintenance, News scans, and News source suggestions. AI-authored reviews remain separate from human summaries. Paper reviews include a 1–5 reading score and brief rationale; **Library → Recommendations** shows the latest scored reviews and suggested project fits. Accepting a project suggestion links the paper to that project. Reviews keep internal evidence IDs out of the prose, with sources in the expandable Evidence section. Proposed tags prefer the existing vocabulary, require descriptions for new tags, and need approval before assignment; approved project notes retain AI attribution. Recommendations appear in Inbox with Essential, Recommended, or Optional strength, and project recommendations can be approved to link existing papers.
 
 Keep Atlas running with `npm start`, then run `npm run assistant:setup` to automatically register Atlas in the shared ChatGPT Desktop/Codex configuration and create a private research-assistant workspace outside this repository, with its own `AGENTS.md`, skills, and connection configuration. Restart the desktop MCP connection after setup; no manual server entry is needed. See [connection setup](docs/assistant-setup.md) and [research workflows](docs/assistant-workflows.md). ChatGPT Desktop and Claude Desktop launch a local bridge that authenticates to the running Atlas server. No tunnel or public endpoint is needed; ChatGPT web does not use the desktop configuration.
 
@@ -92,7 +96,7 @@ Atlas is an early, single-computer tool. Zotero provides the source library and 
 
 ## Design and development
 
-The [architecture](docs/architecture.md) explains data ownership, SQLite schema, privacy, and Projects, and the path to News. The [Zotero integration notes](docs/zotero-integration.md) document API behavior and compatibility.
+The [architecture](docs/architecture.md) explains data ownership, SQLite schema, privacy, Projects, and News. The [Zotero integration notes](docs/zotero-integration.md) document API behavior and compatibility.
 
 Run `npm run typecheck`, `npm test`, and `npm run build` before sharing changes. `npm run format` formats the source; `npm run format:check` checks formatting. Dependencies are locked in `package-lock.json`; use `npm ci` for repeatable installs.
 

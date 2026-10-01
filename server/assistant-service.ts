@@ -3,6 +3,7 @@ import { ZoteroClient } from './zotero.ts';
 import type { AIRecordInput, AICandidate, Citation } from '../shared/assistant.ts';
 import { AssistantStore } from './assistant-store.ts';
 import { AtlasDatabase } from './database.ts';
+import { NewsService } from './news-service.ts';
 import { ProjectStore } from './projects.ts';
 import { Retrieval } from './retrieval.ts';
 import { ZoteroWorkflow } from './zotero-workflow.ts';
@@ -13,6 +14,7 @@ export class AssistantService {
   store: AssistantStore;
   retrieval: Retrieval;
   zotero: ZoteroWorkflow;
+  news: NewsService;
   private indexing: Promise<ReturnType<Retrieval['status']>> | null = null;
   constructor(library: AtlasDatabase, projects: ProjectStore) {
     this.library = library;
@@ -20,6 +22,7 @@ export class AssistantService {
     this.store = new AssistantStore(library.db);
     this.retrieval = new Retrieval(library, projects, this.store);
     this.zotero = new ZoteroWorkflow(library, projects, this.retrieval);
+    this.news = new NewsService(library, projects, this.retrieval);
   }
   async checkAttachments(runId: string, paperId: string) {
     this.retrieval.run(runId);
@@ -172,6 +175,23 @@ export class AssistantService {
     });
     if (key) this.library.setSetting(key, saved.id);
     return saved;
+  }
+  submitNews(
+    runId: string,
+    items: Parameters<NewsService['submitTriage']>[1],
+    requestKey?: string,
+  ) {
+    // Same-run retries with a request key return the first result instead of adding triage history.
+    const key = requestKey ? `assistantNewsSubmission:${runId}:${requestKey}` : null;
+    const previous = key ? this.library.getSetting(key) : null;
+    if (previous) {
+      this.retrieval.run(runId);
+      const found = (JSON.parse(previous) as string[]).flatMap((id) => this.news.item(id) ?? []);
+      return { saved: found.length, items: found, duplicate: true };
+    }
+    const result = this.news.submitTriage(runId, items);
+    if (key) this.library.setSetting(key, JSON.stringify(result.items.map((item) => item.id)));
+    return result;
   }
   async findPapers(runId: string, query: string, limit = 8, fetcher: typeof fetch = fetch) {
     this.retrieval.run(runId);

@@ -13,6 +13,8 @@ import { decodeFigure } from './project-assets.ts';
 import { ZoteroClient, ZOTERO_BASE } from './zotero.ts';
 import { attachmentAvailability, setAttachmentVisibility } from './attachment-availability.ts';
 import { secureRequest, json, readJson } from './http.ts';
+import { NewsZotero } from './news-zotero.ts';
+import type { NewsListFilter } from '../shared/news.ts';
 import type { SyncState } from '../shared/types.ts';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dataDirectory = atlasDataDirectory();
@@ -51,6 +53,7 @@ async function syncFromZotero() {
   }
 }
 assistant.zotero.setSync(syncFromZotero);
+const newsZotero = new NewsZotero(database, projects, assistant.zotero);
 const production = process.argv.includes('--production');
 const vite = production
   ? null
@@ -128,6 +131,115 @@ const server = createServer(async (req, res) => {
         const record = assistant.store.decide(decodeURIComponent(aiDecision[1]), body.approve);
         assistant.retrieval.refresh();
         return json(res, record ? 200 : 404, record ?? { error: 'AI record not found' });
+      }
+      if (path === '/api/news' || path.startsWith('/api/news/')) {
+        const news = assistant.news;
+        if (req.method === 'GET' && path === '/api/news') {
+          const number = (key: string) =>
+            url.searchParams.has(key) ? Number(url.searchParams.get(key)) : undefined;
+          return json(
+            res,
+            200,
+            news.list({
+              state: (url.searchParams.get('state') || undefined) as NewsListFilter | undefined,
+              limit: number('limit'),
+              offset: number('offset'),
+            }),
+          );
+        }
+        if (path === '/api/news/collect') {
+          if (req.method === 'GET') return json(res, 200, news.collectStatus());
+          if (req.method === 'POST') {
+            // Manual refresh only; the UI polls the status instead of holding the request open.
+            void news.collect();
+            return json(res, 202, news.collectStatus());
+          }
+        }
+        if (path === '/api/news/sources') {
+          if (req.method === 'GET')
+            return json(res, 200, {
+              sources: news.sources(),
+              suggestions: news.suggestions(),
+              settings: news.settings(),
+            });
+          if (req.method === 'POST')
+            return json(res, 201, news.addSource((await readJson(req)) as any));
+        }
+        if (req.method === 'POST' && path === '/api/news/sources/detect') {
+          const body = await readJson(req);
+          return json(res, 200, await news.detectSources(body.input as string));
+        }
+        const newsSource = path.match(/^\/api\/news\/sources\/([^/]+)$/);
+        if (newsSource) {
+          const id = decodeURIComponent(newsSource[1]);
+          if (req.method === 'PATCH') {
+            const source = news.patchSource(id, (await readJson(req)) as any);
+            return json(res, source ? 200 : 404, source ?? { error: 'Source not found' });
+          }
+          if (req.method === 'DELETE') {
+            const ok = news.removeSource(id);
+            return json(res, ok ? 200 : 404, ok ? { ok } : { error: 'Source not found' });
+          }
+        }
+        const suggestion = path.match(/^\/api\/news\/suggestions\/([^/]+)\/decision$/);
+        if (req.method === 'POST' && suggestion) {
+          const id = decodeURIComponent(suggestion[1]);
+          if (!news.store.suggestionRow(id))
+            return json(res, 404, { error: 'Suggestion not found' });
+          const body = await readJson(req);
+          return json(res, 200, { source: news.decideSuggestion(id, body.accept as boolean) });
+        }
+        if (req.method === 'PUT' && path === '/api/news/settings')
+          return json(res, 200, news.setSettings((await readJson(req)) as any));
+        const newsItem = path.match(
+          /^\/api\/news\/items\/([^/]+)\/(state|feedback|zotero|project)$/,
+        );
+        if (req.method === 'POST' && newsItem) {
+          const id = decodeURIComponent(newsItem[1]);
+          const current = news.item(id);
+          if (!current) return json(res, 404, { error: 'News item not found' });
+          const body = await readJson(req);
+          if (newsItem[2] === 'state')
+            return json(
+              res,
+              200,
+              news.setState(id, body.state as any, (body.reason ?? null) as any),
+            );
+          if (newsItem[2] === 'feedback')
+            return json(res, 200, news.feedback(id, body.action as any));
+          if (newsItem[2] === 'project') {
+            const item = news.linkProject(id, body.projectId as string);
+            assistant.retrieval.refresh();
+            return json(res, 200, item);
+          }
+          for (const key of Object.keys(body))
+            if (!['collectionId', 'projectId', 'attachPdf'].includes(key))
+              throw new Error(`Unknown field: ${key}`);
+          const input = {
+            collectionId: body.collectionId ?? null,
+            projectId: body.projectId ?? null,
+            attachPdf: body.attachPdf ?? false,
+          };
+          if (input.collectionId !== null && typeof input.collectionId !== 'string')
+            throw new Error('collectionId must be a string or null');
+          if (input.projectId !== null && typeof input.projectId !== 'string')
+            throw new Error('projectId must be a string or null');
+          if (typeof input.attachPdf !== 'boolean') throw new Error('attachPdf must be a boolean');
+          if (input.projectId && !projects.detail(input.projectId))
+            return json(res, 404, { error: 'Project not found' });
+          let added;
+          try {
+            added = await newsZotero.add(current, input as any);
+          } catch (error) {
+            return json(res, 502, {
+              error: error instanceof Error ? error.message : 'Adding to Zotero failed',
+            });
+          }
+          const item = news.markAdded(id, added.paperId)!;
+          assistant.retrieval.refresh();
+          return json(res, 200, { ...added, item });
+        }
+        return json(res, 404, { error: 'News endpoint not found' });
       }
       if (req.method === 'GET' && path === '/api/library')
         return json(res, 200, database.library());

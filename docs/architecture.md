@@ -2,7 +2,7 @@
 
 ## Product boundary
 
-Atlas is a single-user application running on the same computer as Zotero. The app provides a paper library and project workspace. News remains a future section.
+Atlas is a single-user application running on the same computer as Zotero. The app provides a paper library, a project workspace, and News, which collects candidate papers and posts from sources you choose.
 
 The Library offers Inbox (newly imported items), Reading, Read, Starred, and Archived views. All papers includes unarchived items; archive is a separate view. Library is a collapsible navigation group. Its Collections page lists Zotero collections instead of listing each collection in the sidebar. Atlas tags, Zotero tags, and search refine paper views. A paper has one reading status, an independent star, and an independent archive flag. This avoids confusing “starred” with a stage in the reading process.
 
@@ -14,23 +14,24 @@ This browser-based local application is the first distribution format. It offers
 
 ## Data ownership and schema
 
-| Table               | Purpose and owner                                                                        |
-| ------------------- | ---------------------------------------------------------------------------------------- |
-| `libraries`         | Zotero library identity, route prefix, optional desktop server ID                        |
-| `source_items`      | Original Zotero metadata JSON, composite identity, source presence, last metadata change |
-| `paper_state`       | Atlas reading status, star, archive, summary, notes, first import time                   |
-| `collections`       | Current Zotero collection names and hierarchy                                            |
-| `attachments`       | Current attachment-to-paper relationships                                                |
-| `annotations`       | Atlas page-linked text/quote notes keyed to paper and attachment                         |
-| `settings`          | Successful sync timestamp                                                                |
-| `tag_definitions`   | Tag name, origin, and Atlas-owned short explanation                                      |
-| `paper_tags`        | Atlas tag-to-paper assignments                                                           |
-| `projects`          | Atlas project summaries, status, GitHub and Overleaf links                               |
-| `project_tags`      | Atlas-origin tag assignments shared with the library vocabulary                          |
-| `project_papers`    | Many-to-many project references to persistent paper state                                |
-| `project_notes`     | Markdown notes with folders, pinning, archive, and timestamps                            |
-| `project_assets`    | Project-scoped raster figures stored as SQLite BLOBs                                     |
-| `schema_migrations` | Database schema versions; v2 adds tags, v3 adds projects                                 |
+| Table               | Purpose and owner                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------ |
+| `libraries`         | Zotero library identity, route prefix, optional desktop server ID                          |
+| `source_items`      | Original Zotero metadata JSON, composite identity, source presence, last metadata change   |
+| `paper_state`       | Atlas reading status, star, archive, summary, notes, first import time                     |
+| `collections`       | Current Zotero collection names and hierarchy                                              |
+| `attachments`       | Current attachment-to-paper relationships                                                  |
+| `annotations`       | Atlas page-linked text/quote notes keyed to paper and attachment                           |
+| `settings`          | Successful sync timestamp                                                                  |
+| `tag_definitions`   | Tag name, origin, and Atlas-owned short explanation                                        |
+| `paper_tags`        | Atlas tag-to-paper assignments                                                             |
+| `projects`          | Atlas project summaries, status, GitHub and Overleaf links                                 |
+| `project_tags`      | Atlas-origin tag assignments shared with the library vocabulary                            |
+| `project_papers`    | Many-to-many project references to persistent paper state                                  |
+| `project_notes`     | Markdown notes with folders, pinning, archive, and timestamps                              |
+| `project_assets`    | Project-scoped raster figures stored as SQLite BLOBs                                       |
+| `news_*`            | v8: News sources, suggestions, items, identifiers, provenance, triage, feedback, runs, FTS |
+| `schema_migrations` | Database schema versions; v2 adds tags, v3 adds projects, v8 adds News                     |
 
 Source identity combines the desktop server ID, library type/ID, and Zotero key. For older Zotero clients without server IDs, a stable `local-default` namespace is used. Those clients cannot reliably distinguish switching Zotero profiles; do not reuse one Atlas data directory across such profiles. Upgrading to a server-ID-aware version partitions new source records to avoid incorrectly attaching old annotations; automatic identity migration is future work.
 
@@ -78,7 +79,13 @@ The desktop host launches a local MCP stdio bridge, which reads the private assi
 
 Migration v5 adds `rag_documents`, overlapping `rag_chunks`, an FTS5/BM25 index, `assistant_runs`, and per-run evidence snapshots. Metadata refreshes before retrieval; PDFs index explicitly in bounded worker threads. Source hashes invalidate changed citations before submission. Project scope includes linked papers and active notes, with AI authorship preserved. Full-text PDF indexing has no OCR and cannot guarantee faithful equations or figures. This is lexical RAG; semantic embeddings and retrieval evaluation over a larger corpus are future work.
 
-External paper discovery uses a Crossref metadata tool, which returns canonical candidates and citable evidence. Assistants cannot invent candidate metadata during submission. Local candidates, source papers, recommendations, and citation evidence remain distinct. Assistant instructions and six workflow skills live in `assistant-workspace/` and are linked into the private research workspace by the setup script; they do not become developer-root instructions. See [assistant setup](assistant-setup.md) for transport choices and privacy boundaries.
+External paper discovery uses a Crossref metadata tool, which returns canonical candidates and citable evidence. Assistants cannot invent candidate metadata during submission. Local candidates, source papers, recommendations, and citation evidence remain distinct. Assistant instructions and eight workflow skills live in `assistant-workspace/` and are linked into the private research workspace by the setup script; they do not become developer-root instructions. See [assistant setup](assistant-setup.md) for transport choices and privacy boundaries.
+
+## News
+
+Migration v8 adds `news_sources`, `news_source_suggestions`, `news_items`, `news_identifiers` (DOI, arXiv, OpenAlex, URL to item), `news_item_sources` (provenance), `news_triage` (history kept; latest wins), append-only `news_feedback`, `news_runs`, and `news_fts`. The contact email and OpenAlex key live in `settings`; the key is never returned to the interface. News rows never enter `source_items` until the user adds them to Zotero, and items matching a library paper by DOI or arXiv ID are marked as already in the library.
+
+Collection is ordinary HTTP to fixed source types (arXiv RSS, RSS/Atom feeds, OpenAlex), single-flight, and manual: it runs only from the News **Refresh** button or the user-started `atlas_news_collect` tool. There is no scheduler. A deterministic pre-score ranks untriaged items; assistant triage adds a 1–5 score and cited explanation. MCP tools can read the queue, sources and feedback, submit triage, and propose sources, but cannot add or remove sources or write to Zotero. **Add to Zotero** is a UI action that reuses the Zotero 10 local API write path. See [News design](news-design.md).
 
 ## Privacy and backup
 
@@ -90,4 +97,4 @@ To back up, stop Atlas and copy its data directory; back up Zotero's PDF storage
 
 ## Extension path
 
-News should ingest feed candidates into separate tables, with an explicit “add to library” action; discovery results should not silently enter the inbox. AI artifacts already retain model attribution, source hashes, timestamps, and approval decisions; future retrieval work can add semantic ranking and richer extraction.
+News ingests feed candidates into separate tables, with an explicit “Add to Zotero” action; discovery results never silently enter the inbox. Later News work (Semantic Scholar recommendations, GitHub search, stories, digests) is described in [News design](news-design.md). AI artifacts already retain model attribution, source hashes, timestamps, and approval decisions; future retrieval work can add semantic ranking and richer extraction.
