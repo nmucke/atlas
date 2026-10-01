@@ -1,7 +1,7 @@
 import { AtlasDatabase } from '../server/database.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
+import { lstat, mkdtemp, mkdir, readFile, realpath, writeFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
@@ -268,12 +268,20 @@ test('setup prints portable desktop values, preserves instructions, and never pr
     assert.equal(parsed.mcp_servers.atlas.command, process.execPath);
     assert.equal(parsed.mcp_servers.atlas.env.ATLAS_PORT, '45678');
     assert.equal(parsed.mcp_servers.corpus.command, 'corpus-node');
+    // AGENTS.md links to the checked-in template; personal instructions live beside it.
+    // Never write through the link: that would overwrite the repository template.
+    const template = resolve('assistant-workspace/AGENTS.md');
+    const templateText = await readFile(template, 'utf8');
+    assert.ok((await lstat(join(workspace, 'AGENTS.md'))).isSymbolicLink());
+    assert.equal(await realpath(join(workspace, 'AGENTS.md')), await realpath(template));
     const custom = 'My private research instructions';
-    await writeFile(join(workspace, 'AGENTS.md'), custom);
+    await writeFile(join(workspace, 'AGENTS.local.md'), custom);
     const repeated = await run();
     assert.match(repeated.stdout, /already registered/);
     assert.equal(await readFile(sharedFilename, 'utf8'), shared);
-    assert.equal(await readFile(join(workspace, 'AGENTS.md'), 'utf8'), custom);
+    assert.equal(await readFile(join(workspace, 'AGENTS.local.md'), 'utf8'), custom);
+    assert.equal(await realpath(join(workspace, 'AGENTS.md')), await realpath(template));
+    assert.equal(await readFile(template, 'utf8'), templateText);
     assert.equal(
       await readFile(join(workspace, 'claude-desktop-config.fragment.json'), 'utf8'),
       configText,
