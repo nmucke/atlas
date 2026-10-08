@@ -15,8 +15,12 @@ npm start
 In a second terminal in the repository, run:
 
 ```sh
-npm run assistant:setup
+./scripts/register-mcp.sh
 ```
+
+This one command registers Atlas with ChatGPT Desktop/Codex, Claude Desktop, and (when the `claude` CLI is installed) Claude Code at user scope, then reports whether the Atlas server is running. Restart the desktop apps afterwards. `npm run assistant:setup` does the same except for Claude Code.
+
+Setup also registers Atlas in Claude Desktop's configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude` on Windows, `~/.config/Claude` on Linux, or `$CLAUDE_DESKTOP_CONFIG`). Only Atlas's command, arguments, and Atlas environment values change; other servers and preferences are kept, and the previous file is backed up beside it.
 
 Setup automatically registers the local Atlas bridge in the shared ChatGPT Desktop/Codex configuration at `~/.codex/config.toml`, or `$CODEX_HOME/config.toml` when `CODEX_HOME` is set. You do not need a separate Codex CLI installation or to type server settings into ChatGPT. Only Atlas's command, arguments, working directory, tool timeout, and Atlas environment values are added or refreshed. Corpus, other servers, comments, and other preferences are preserved, including any explicit disabled state or per-tool restrictions on Atlas. Re-running setup is safe; unchanged configurations are not rewritten.
 
@@ -38,7 +42,7 @@ After updating Atlas code, restart the running Atlas server too: the STDIO bridg
 
 ## Claude Desktop
 
-Merge the generated `claude-desktop-config.fragment.json` entry into `mcpServers` in Claude Desktop's configuration. Preserve all existing servers and settings. On macOS the configuration is normally `~/Library/Application Support/Claude/claude_desktop_config.json`; Claude's Developer settings expose its configuration and logs. Restart Claude Desktop and confirm that Atlas tools are listed. See [Claude's local MCP documentation](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop).
+Setup registers Atlas in Claude Desktop's configuration automatically. Restart Claude Desktop and confirm that Atlas tools are listed; Claude's Developer settings expose its configuration and logs. The workspace's `claude-desktop-config.fragment.json` remains as a reference for manual setups. See [Claude's local MCP documentation](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop).
 
 ## How the local bridge works
 

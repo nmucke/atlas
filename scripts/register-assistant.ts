@@ -128,11 +128,63 @@ export function updateAtlasConfig(
   return updated;
 }
 
-export async function registerAssistant(
-  filename: string,
-  connection: AssistantConnection,
-  workspace: string,
-) {
+export function claudeDesktopConfig() {
+  if (process.env.CLAUDE_DESKTOP_CONFIG) return resolve(process.env.CLAUDE_DESKTOP_CONFIG);
+  const base =
+    process.platform === 'darwin'
+      ? join(homedir(), 'Library', 'Application Support')
+      : process.platform === 'win32'
+        ? process.env.APPDATA || join(homedir(), 'AppData', 'Roaming')
+        : process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+  return join(base, 'Claude', 'claude_desktop_config.json');
+}
+type JsonObject = Record<string, unknown>;
+const isObject = (value: unknown): value is JsonObject =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+// Only Atlas's command, arguments and Atlas environment values are replaced;
+// other servers, preferences and extra keys on the Atlas entry are kept.
+export function updateClaudeDesktopConfig(text: string, connection: AssistantConnection) {
+  let config: unknown = {};
+  if (text.trim())
+    try {
+      config = JSON.parse(text);
+    } catch {
+      throw new Error(
+        'The existing Claude Desktop configuration is not valid JSON. No settings were changed.',
+      );
+    }
+  if (!isObject(config))
+    throw new Error(
+      'Claude Desktop configuration must be a JSON object. No settings were changed.',
+    );
+  const servers = config.mcpServers ?? {};
+  if (!isObject(servers))
+    throw new Error('mcpServers must be a JSON object. No settings were changed.');
+  const atlas = servers.atlas ?? {};
+  if (!isObject(atlas) || 'url' in atlas)
+    throw new Error(
+      'Another MCP server already uses the name atlas. Rename that entry before registering the local bridge. No settings were changed.',
+    );
+  const env = isObject(atlas.env) ? atlas.env : {};
+  const next = {
+    ...config,
+    mcpServers: {
+      ...servers,
+      atlas: {
+        ...atlas,
+        command: connection.command,
+        args: connection.args,
+        env: { ...env, ...connection.env },
+      },
+    },
+  };
+  if (isDeepStrictEqual(next, config)) return text;
+  return JSON.stringify(next, null, 2) + '\n';
+}
+
+// Rewrite a host configuration atomically under a lock, keeping an owner-only
+// backup of the previous bytes. Unchanged configurations are not rewritten.
+async function rewriteConfig(filename: string, label: string, update: (text: string) => string) {
   await mkdir(dirname(filename), { recursive: true, mode: 0o700 });
   // Respect a user's symlinked configuration instead of replacing the symlink.
   try {
@@ -154,7 +206,7 @@ export async function registerAssistant(
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
-    const updated = updateAtlasConfig(original ?? '', connection, workspace);
+    const updated = update(original ?? '');
     if (updated === original) return { filename, changed: false, backup: undefined };
     const backup = original === undefined ? undefined : `${filename}.atlas-backup-${randomUUID()}`;
     if (backup) await writeFile(backup, original!, { flag: 'wx', mode: 0o600 });
@@ -164,7 +216,7 @@ export async function registerAssistant(
       throw error;
     });
     if (current !== original)
-      throw new Error('Codex configuration changed during setup. Please run setup again.');
+      throw new Error(`${label} configuration changed during setup. Please run setup again.`);
     await rename(temporary, filename);
     return { filename, changed: true, backup };
   } finally {
@@ -172,6 +224,20 @@ export async function registerAssistant(
     await lock.close();
     await rm(lockname, { force: true });
   }
+}
+
+export function registerAssistant(
+  filename: string,
+  connection: AssistantConnection,
+  workspace: string,
+) {
+  return rewriteConfig(filename, 'Codex', (text) => updateAtlasConfig(text, connection, workspace));
+}
+
+export function registerClaudeDesktop(filename: string, connection: AssistantConnection) {
+  return rewriteConfig(filename, 'Claude Desktop', (text) =>
+    updateClaudeDesktopConfig(text, connection),
+  );
 }
 
 // The checked-in templates are canonical. Private workspace and host entries

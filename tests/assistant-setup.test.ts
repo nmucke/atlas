@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { getStaticTOMLValue, parseTOML } from 'toml-eslint-parser';
 import {
   updateAtlasConfig,
+  updateClaudeDesktopConfig,
   registerAssistant,
   installAssistantSkillLinks,
   installAssistantInstructions,
@@ -85,6 +86,44 @@ test('malformed or conflicting config fails without exposing content', () => {
       },
     );
   }
+});
+
+test('Claude Desktop registration preserves other settings and is idempotent', () => {
+  const original = {
+    mcpServers: {
+      corpus: { command: 'keep' },
+      atlas: { command: 'old', args: ['/old/mcp.ts'], env: { CUSTOM: 'keep' }, extra: true },
+    },
+    preferences: { theme: 'dark' },
+  };
+  const updated = updateClaudeDesktopConfig(JSON.stringify(original), connection);
+  const actual = JSON.parse(updated);
+  assert.equal(actual.mcpServers.atlas.command, connection.command);
+  assert.deepEqual(actual.mcpServers.atlas.args, connection.args);
+  assert.deepEqual(actual.mcpServers.atlas.env, { CUSTOM: 'keep', ...connection.env });
+  assert.equal(actual.mcpServers.atlas.extra, true);
+  assert.deepEqual(actual.mcpServers.corpus, original.mcpServers.corpus);
+  assert.deepEqual(actual.preferences, original.preferences);
+  assert.equal(updateClaudeDesktopConfig(updated, connection), updated);
+  assert.equal(
+    JSON.parse(updateClaudeDesktopConfig('', connection)).mcpServers.atlas.command,
+    connection.command,
+  );
+  for (const text of [
+    '{"secret": "private',
+    '[]',
+    '{"mcpServers": 1}',
+    '{"mcpServers": {"atlas": {"url": "https://private.example"}}}',
+  ])
+    assert.throws(
+      () => updateClaudeDesktopConfig(text, connection),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /No settings were changed/);
+        assert.doesNotMatch(error.message, /private/);
+        return true;
+      },
+    );
 });
 
 test('registration backs up exact bytes, writes privately, and does not duplicate backups on rerun', async () => {

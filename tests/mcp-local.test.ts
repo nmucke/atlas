@@ -239,6 +239,7 @@ test('setup prints portable desktop values, preserves instructions, and never pr
       ATLAS_DATA_DIR: directory,
       ATLAS_PORT: '45678',
       CODEX_HOME: join(directory, 'codex-test-home'),
+      CLAUDE_DESKTOP_CONFIG: join(directory, 'claude-test-home', 'claude_desktop_config.json'),
     };
     const run = () =>
       exec(process.execPath, ['--experimental-strip-types', 'scripts/setup-assistant.ts'], { env });
@@ -249,6 +250,9 @@ test('setup prints portable desktop values, preserves instructions, and never pr
     const { stdout } = await run();
     assert.match(stdout, /ChatGPT Desktop \/ Codex: Atlas registered/);
     assert.match(stdout, /127\.0\.0\.1:45678/);
+    assert.match(stdout, /Claude Desktop: Atlas registered/);
+    const desktop = JSON.parse(await readFile(env.CLAUDE_DESKTOP_CONFIG, 'utf8'));
+    assert.equal(desktop.mcpServers.atlas.env.ATLAS_PORT, '45678');
     assert.equal(stdout.includes(token), false);
     const workspace = join(directory, 'assistant-workspace');
     const configText = await readFile(
