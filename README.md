@@ -164,7 +164,7 @@ Then restart Atlas and restart your assistant apps' MCP connection. Database upg
 | Problem                                                     | Fix                                                                                                                             |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `npm ci` fails with `EBADENGINE`, or Node.js 24 is required | Install Node 24 (`nvm install && nvm use`), then `npm ci` again.                                                                |
-| `npm start` says to run `npm run build` first               | Run `npm run build`, or use `npm run dev`.                                                                                      |
+| Atlas says it has not been built yet                        | Run `npm run build`, or use `npm run dev`.                                                                                      |
 | "Port 3210 is already in use"                               | Another Atlas or app uses 3210. Stop it, or start with `ATLAS_PORT=3211 npm start` and re-run registration with the same value. |
 | Sync fails or says Zotero cannot be reached                 | Start Zotero and enable **Allow other applications on this computer to communicate with Zotero** in Settings → Advanced.        |
 | A PDF does not open                                         | Keep Zotero running and make sure the file is downloaded in Zotero.                                                             |

@@ -23,8 +23,10 @@ function exitWith(message: string): never {
   console.error(message);
   process.exit(1);
 }
-if (production && !existsSync(join(root, 'dist', 'index.html')))
-  exitWith('Atlas has not been built yet. Run `npm run build` first, or use `npm run dev`.');
+const notBuilt = 'Atlas has not been built yet. Run `npm run build` first, or use `npm run dev`.';
+// The API and assistant bridge still work without a build; only the web app needs dist/.
+const built = !production || existsSync(join(root, 'dist', 'index.html'));
+if (!built) console.warn(notBuilt);
 const port = Number(process.env.ATLAS_PORT || 3210);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   exitWith('ATLAS_PORT must be an integer from 1024 to 65535.');
@@ -427,6 +429,11 @@ const server = createServer(async (req, res) => {
     }
     if (vite) {
       vite.middlewares(req, res);
+      return;
+    }
+    if (!built) {
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(notBuilt);
       return;
     }
     const dist = join(root, 'dist');
