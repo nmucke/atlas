@@ -1,12 +1,12 @@
 # News: design
 
-Status: MVP in progress (2026-10-01). It extends the "Extension path" in [architecture](architecture.md). Sections marked **Later** describe direction, not the current build.
+Status: the MVP described in [Build phases](#10-build-phases) is implemented. This design record extends the "Extension path" in [architecture](architecture.md). Sections marked **Later** describe direction, not the current build.
 
 News shows new papers, blog posts, repositories, releases and datasets that are relevant to your profile and projects, so you can triage them in a few minutes. From a paper you can add it to Zotero, put it in your Atlas Inbox and link it to a project in one action.
 
 ## Product decisions
 
-These decisions from the user override earlier drafts of this document:
+These decisions shape the rest of the design:
 
 1. **Nothing runs automatically.** Atlas has no timer, internal scheduler or recurring schedule for News, and the assistant workflow is never scheduled. Collection runs only when you press **Refresh** in News, or when you start the `atlas-news-scan` assistant workflow, which calls `atlas_news_collect` itself and then triages.
 2. **Sources are easy to add and remove.** The Sources page is built around one **Add a source** box. It accepts whatever you have (an arXiv category such as `stat.ML`, an arXiv listing URL, a blog or journal homepage or feed URL, a GitHub repository URL, an OpenAlex author or work URL or ID, or plain keywords), detects what it is and offers one-click Add. Remove is one click with an in-page Undo, and each source has an enable toggle. Sources the assistant proposes appear as suggestions with Add / Dismiss.
@@ -239,7 +239,7 @@ j/k next/prev   o expand   z Zotero   s save   d dismiss   u undo   ? help
 
 ## 10. Build phases
 
-1. **MVP (this build):**
+1. **MVP (implemented):**
    - Migration v8.
    - Collectors for arXiv RSS, RSS/Atom (including GitHub releases) and OpenAlex author, query and `cites`.
    - The smart Add a source box, one-click remove and enable toggle.

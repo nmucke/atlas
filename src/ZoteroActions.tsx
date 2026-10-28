@@ -5,6 +5,7 @@ import type { ZoteroAction } from '../shared/zotero-workflow';
 export interface ZoteroStatus {
   version: string | null;
   reachable: boolean;
+  writesSupported: boolean; // false when this Zotero can sync but predates local writes
   authorized: boolean;
   automaticPdfWrites: boolean;
   actions: ZoteroAction[];
@@ -125,8 +126,10 @@ export function ZoteroActions({
             ? `Zotero connected${zotero.version ? ` · ${zotero.version}` : ''}`
             : 'Zotero is unavailable'}
         </span>
-        <span>{zotero.authorized ? 'Local writes enabled' : 'Local writes disabled'}</span>
-        {zotero.authorized && (
+        {zotero.writesSupported && (
+          <span>{zotero.authorized ? 'Local writes enabled' : 'Local writes disabled'}</span>
+        )}
+        {zotero.writesSupported && zotero.authorized && (
           <span>
             {zotero.automaticPdfWrites
               ? 'Automatic PDF additions enabled'
@@ -134,28 +137,37 @@ export function ZoteroActions({
           </span>
         )}
       </div>
-      {!zotero.automaticPdfWrites && (
+      {zotero.reachable && !zotero.writesSupported ? (
         <div className="zotero-auth">
           <p>
-            {zotero.authorized
-              ? 'To allow agent PDF additions, update your Zotero permission.'
-              : 'Enable local Zotero writes to add PDFs and carry out duplicate decisions.'}{' '}
-            Choose <strong>Always Allow</strong> in the authorization prompt for automatic PDF
-            additions.
+            Update Zotero to use write actions (Add to Zotero, attach PDF, trash duplicates).
+            Library sync and PDF reading still work with this version.
           </p>
-          <button
-            className="assistant-small-action"
-            disabled={busy !== null || !zotero.reachable}
-            onClick={() => void run('authorize', '/api/zotero/authorize')}
-          >
-            {busy === 'authorize' ? (
-              <LoaderCircle size={15} className="spin" />
-            ) : (
-              <Check size={15} />
-            )}
-            {zotero.authorized ? 'Enable automatic PDF additions' : 'Enable Zotero writes'}
-          </button>
         </div>
+      ) : (
+        !zotero.automaticPdfWrites && (
+          <div className="zotero-auth">
+            <p>
+              {zotero.authorized
+                ? 'To allow agent PDF additions, update your Zotero permission.'
+                : 'Enable local Zotero writes to add PDFs and carry out duplicate decisions.'}{' '}
+              Choose <strong>Always Allow</strong> in the authorization prompt for automatic PDF
+              additions.
+            </p>
+            <button
+              className="assistant-small-action"
+              disabled={busy !== null || !zotero.reachable}
+              onClick={() => void run('authorize', '/api/zotero/authorize')}
+            >
+              {busy === 'authorize' ? (
+                <LoaderCircle size={15} className="spin" />
+              ) : (
+                <Check size={15} />
+              )}
+              {zotero.authorized ? 'Enable automatic PDF additions' : 'Enable Zotero writes'}
+            </button>
+          </div>
+        )
       )}
       {error && (
         <div className="assistant-inline-error" role="alert">

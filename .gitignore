@@ -19,3 +19,9 @@ test-results/
 data/
 backups/
 assistant-token
+# Assistant workspace files, in case ATLAS_DATA_DIR points inside the repo
+.mcp.json
+AGENTS.local.md
+claude-desktop-config.fragment.json
+.atlas-backups/
+.codex/

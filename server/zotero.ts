@@ -1,6 +1,15 @@
 import { fileURLToPath } from 'node:url';
 import type { Snapshot, SourceItem } from './database.ts';
 export const ZOTERO_BASE = 'http://127.0.0.1:23119/api';
+export const ZOTERO_TIMEOUT_MESSAGE =
+  'Zotero did not respond within 60 seconds. If it is still starting or syncing a large library, wait and try again.';
+export const ZOTERO_TOO_OLD_MESSAGE =
+  'Atlas needs Zotero 7 or newer with “Allow other applications on this computer to communicate with Zotero” enabled (Settings → Advanced).';
+// AbortSignal.timeout rejects with TimeoutError; an aborted body stream can surface AbortError.
+function timedOut(error: unknown) {
+  const name = (error as { name?: unknown } | null)?.name;
+  return name === 'TimeoutError' || name === 'AbortError';
+}
 export class ZoteroClient {
   private fetcher: typeof fetch;
   constructor(fetcher: typeof fetch = fetch) {
@@ -18,7 +27,8 @@ export class ZoteroClient {
         signal: AbortSignal.timeout(60000),
         redirect: 'error',
       });
-    } catch {
+    } catch (error) {
+      if (timedOut(error)) throw new Error(ZOTERO_TIMEOUT_MESSAGE);
       throw new Error(
         'Cannot reach Zotero. Open Zotero and enable “Allow other applications on this computer to communicate with Zotero” in Settings → Advanced, then try again.',
       );
@@ -50,7 +60,15 @@ export class ZoteroClient {
     const chunks: Uint8Array[] = [];
     let size = 0;
     while (true) {
-      const { done, value } = await reader.read();
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } catch (error) {
+        // The request timeout also covers the body; report it like a slow response.
+        if (timedOut(error)) throw new Error(ZOTERO_TIMEOUT_MESSAGE);
+        throw error;
+      }
+      const { done, value } = chunk;
       if (done) break;
       size += value.length;
       if (size > 128 * 1024 * 1024) {
@@ -161,7 +179,14 @@ export class ZoteroClient {
     return items;
   }
   async snapshots(): Promise<Snapshot[]> {
-    const info = await this.request('/');
+    let info: Response;
+    try {
+      info = await this.request('/');
+    } catch (error) {
+      // Zotero 6 answers on the connector port but has no /api, so the root itself is missing.
+      if ((error as { status?: number }).status === 404) throw new Error(ZOTERO_TOO_OLD_MESSAGE);
+      throw error;
+    }
     const serverId = info.headers.get('Zotero-Server-ID');
     await info.body?.cancel();
     const groups = await this.list('/users/0/groups', serverId);

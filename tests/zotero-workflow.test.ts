@@ -65,7 +65,8 @@ function fixture() {
     [firstKey, []],
     [secondKey, []],
   ]);
-  const calls: { path: string; method: string; headers: Headers }[] = [];
+  const calls: { path: string; search: string; method: string; headers: Headers }[] = [];
+  let zoteroVersion = '10.0.4';
   const localFiles = new Map<string, string | number>();
   let downloadBytes: Buffer = Buffer.from('%PDF-1.7\nmock document');
   let candidatePages = ['Methods of Observation DOI: 10.1000/1'];
@@ -100,7 +101,7 @@ function fixture() {
     const url = new URL(String(input));
     const method = init?.method ?? 'GET';
     const headers = new Headers(init?.headers);
-    calls.push({ path: url.pathname, method, headers });
+    calls.push({ path: url.pathname, search: url.search, method, headers });
     if (url.hostname === 'api.openalex.org')
       return Response.json({
         doi: 'https://doi.org/10.1000/1',
@@ -114,7 +115,7 @@ function fixture() {
         },
       });
     const commonHeaders = {
-      'X-Zotero-Version': '10.0.4',
+      'X-Zotero-Version': zoteroVersion,
       'Zotero-Server-ID': serverId,
       'Zotero-API-Version': '3',
     };
@@ -252,6 +253,9 @@ function fixture() {
     },
     setFailUpload(value: boolean) {
       failUpload = value;
+    },
+    setZoteroVersion(value: string) {
+      zoteroVersion = value;
     },
     cleanup() {
       db.close();
@@ -543,6 +547,38 @@ test('lost create response is recovered by unique filename without creating a se
       f.calls.filter((call) => call.method === 'POST' && call.path === '/api/users/0/items').length,
       1,
     );
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('status keeps a read-only Zotero connected and flags missing write support', async () => {
+  const f = fixture();
+  try {
+    const current = await f.workflow.status();
+    assert.equal(current.reachable, true);
+    assert.equal(current.writesSupported, true);
+    f.setZoteroVersion('7.0.15');
+    const older = await f.workflow.status();
+    assert.equal(older.reachable, true);
+    assert.equal(older.writesSupported, false);
+    assert.equal(older.version, '7.0.15');
+    assert.equal(older.authorized, false);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('OpenAlex PDF lookup sends the configured OpenAlex key and contact email', async () => {
+  const f = fixture();
+  try {
+    f.db.setSetting('newsContactEmail', 'researcher@example.org');
+    f.db.setSetting('newsOpenAlexKey', 'secret-key');
+    await f.workflow.findPdf(f.run.runId, firstId);
+    const lookup = f.calls.find((call) => call.path.startsWith('/works/'));
+    const params = new URLSearchParams(lookup?.search);
+    assert.equal(params.get('mailto'), 'researcher@example.org');
+    assert.equal(params.get('api_key'), 'secret-key');
   } finally {
     f.cleanup();
   }

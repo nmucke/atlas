@@ -10,6 +10,7 @@ import {
   readdir,
   rename,
   rm,
+  stat,
   symlink,
   writeFile,
 } from 'node:fs/promises';
@@ -28,6 +29,16 @@ export const generatedAssistantInstructionsHash =
 export const generatedClaudeInstructionsHash =
   'adaa7350429cbab1138447f3e2c323b4ca54ed1dc160255afb584e8848ecc6ab';
 export const hashInstructions = (body: string) => createHash('sha256').update(body).digest('hex');
+// Editors such as older Windows Notepad prepend a byte-order mark that parsers reject.
+const withoutBom = (text: string) => text.replace(/^\uFEFF/, '');
+const windows = process.platform === 'win32';
+// Directory junctions need no Windows privilege, unlike directory symlinks.
+// Junction targets must be absolute; elsewhere the given (possibly relative) target is kept.
+function linkDirectory(target: string, link: string) {
+  return windows
+    ? symlink(resolve(dirname(link), target), link, 'junction')
+    : symlink(target, link, 'dir');
+}
 export function sharedCodexConfig() {
   return join(resolve(process.env.CODEX_HOME || join(homedir(), '.codex')), 'config.toml');
 }
@@ -95,10 +106,11 @@ function setValue(text: string, path: string[], value: unknown): string {
   return text.slice(0, at) + (lineEnd < 0 ? newline : '') + assignment + newline + text.slice(at);
 }
 export function updateAtlasConfig(
-  text: string,
+  original: string,
   connection: AssistantConnection,
   workspace: string,
 ) {
+  const text = withoutBom(original);
   const before = getStaticTOMLValue(parse(text));
   const servers = before.mcp_servers;
   if (
@@ -125,7 +137,7 @@ export function updateAtlasConfig(
   for (const [key, value] of Object.entries(connection.env))
     updated = setValue(updated, ['mcp_servers', 'atlas', 'env', key], value);
   parse(updated);
-  return updated;
+  return updated === text ? original : updated;
 }
 
 export function claudeDesktopConfig() {
@@ -143,20 +155,22 @@ const isObject = (value: unknown): value is JsonObject =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 // Only Atlas's command, arguments and Atlas environment values are replaced;
 // other servers, preferences and extra keys on the Atlas entry are kept.
-export function updateClaudeDesktopConfig(text: string, connection: AssistantConnection) {
+export function updateClaudeDesktopConfig(
+  text: string,
+  connection: AssistantConnection,
+  label = 'Claude Desktop',
+) {
   let config: unknown = {};
-  if (text.trim())
+  if (withoutBom(text).trim())
     try {
-      config = JSON.parse(text);
+      config = JSON.parse(withoutBom(text));
     } catch {
       throw new Error(
-        'The existing Claude Desktop configuration is not valid JSON. No settings were changed.',
+        `The existing ${label} configuration is not valid JSON. No settings were changed.`,
       );
     }
   if (!isObject(config))
-    throw new Error(
-      'Claude Desktop configuration must be a JSON object. No settings were changed.',
-    );
+    throw new Error(`${label} configuration must be a JSON object. No settings were changed.`);
   const servers = config.mcpServers ?? {};
   if (!isObject(servers))
     throw new Error('mcpServers must be a JSON object. No settings were changed.');
@@ -182,6 +196,44 @@ export function updateClaudeDesktopConfig(text: string, connection: AssistantCon
   return JSON.stringify(next, null, 2) + '\n';
 }
 
+// A lock records its owner's PID. A lock left by an interrupted setup (dead owner,
+// or older than a minute) is replaced instead of blocking every later run.
+async function staleLock(lockname: string) {
+  try {
+    const info = await stat(lockname);
+    if (Date.now() - info.mtimeMs > 60_000) return true;
+    const pid = Number((await readFile(lockname, 'utf8')).trim());
+    // An empty, fresh lock may belong to a setup that has not written its PID yet.
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'ESRCH';
+    }
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+}
+async function acquireLock(filename: string, lockname: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const lock = await open(lockname, 'wx', 0o600);
+      await lock.writeFile(`${process.pid}\n`);
+      return lock;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? 'unknown error';
+      if (code !== 'EEXIST')
+        throw new Error(`Cannot lock ${filename} (${code}). Check permissions on ${lockname}.`);
+      if (attempt || !(await staleLock(lockname)))
+        throw new Error(
+          `Cannot lock ${filename}: another Atlas setup appears to be running. If not, delete ${lockname} and run setup again.`,
+        );
+      await rm(lockname, { force: true });
+    }
+  }
+}
+
 // Rewrite a host configuration atomically under a lock, keeping an owner-only
 // backup of the previous bytes. Unchanged configurations are not rewritten.
 async function rewriteConfig(filename: string, label: string, update: (text: string) => string) {
@@ -193,11 +245,7 @@ async function rewriteConfig(filename: string, label: string, update: (text: str
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
   const lockname = `${filename}.atlas-setup.lock`;
-  const lock = await open(lockname, 'wx', 0o600).catch(() => {
-    throw new Error(
-      `Cannot lock ${filename}. Check permissions or whether another Atlas setup is running.`,
-    );
-  });
+  const lock = await acquireLock(filename, lockname);
   const temporary = `${filename}.atlas-${randomUUID()}.tmp`;
   try {
     let original: string | undefined;
@@ -234,10 +282,26 @@ export function registerAssistant(
   return rewriteConfig(filename, 'Codex', (text) => updateAtlasConfig(text, connection, workspace));
 }
 
-export function registerClaudeDesktop(filename: string, connection: AssistantConnection) {
-  return rewriteConfig(filename, 'Claude Desktop', (text) =>
-    updateClaudeDesktopConfig(text, connection),
+export function registerClaudeDesktop(
+  filename: string,
+  connection: AssistantConnection,
+  label = 'Claude Desktop',
+) {
+  return rewriteConfig(filename, label, (text) =>
+    updateClaudeDesktopConfig(text, connection, label),
   );
+}
+
+// npm installs claude as claude.cmd, which Node can only start through cmd.exe.
+// Quote each argument for the Windows argument parser and refuse characters that
+// cmd.exe would still interpret, so JSON and paths with spaces arrive intact.
+export function windowsCommandLine(command: string, args: string[]) {
+  if ([command, ...args].some((value) => /[%^&|<>!\r\n]/.test(value))) return null;
+  const quote = (value: string) =>
+    value && !/[\s"]/.test(value)
+      ? value
+      : `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`;
+  return [command, ...args].map(quote).join(' ');
 }
 
 // The checked-in templates are canonical. Private workspace and host entries
@@ -280,7 +344,7 @@ export async function installAssistantSkillLinks(workspace: string, templates: s
       await rename(link, backup);
       backups.push(backup);
     }
-    await symlink(target, link, 'dir');
+    await linkDirectory(target, link);
   }
   for (const host of ['.agents', '.claude']) {
     const hostSkills = join(workspace, host, 'skills');
@@ -315,43 +379,64 @@ export async function installAssistantSkillLinks(workspace: string, templates: s
         backups.push(backup);
       }
       // A relative target survives moving the private workspace as a unit.
-      await symlink(join('..', '..', 'skills', name), link, 'dir');
+      await linkDirectory(join('..', '..', 'skills', name), link);
     }
   }
   return backups;
 }
 
-export async function installAssistantInstructions(workspace: string, template: string) {
-  const link = join(workspace, 'AGENTS.md');
+// Without Windows Developer Mode, file symlinks fail with EPERM; AGENTS.md is then a
+// copy whose hash is recorded, so re-runs refresh an unedited copy and back up an edited one.
+export async function installAssistantInstructions(
+  workspace: string,
+  template: string,
+  link: (target: string, path: string, type: 'file') => Promise<void> = symlink,
+) {
+  const filename = join(workspace, 'AGENTS.md');
+  const copyHash = join(workspace, '.atlas-agents-copy.sha256');
   const target = await realpath(template);
+  const body = await readFile(template, 'utf8');
   let existing: Awaited<ReturnType<typeof lstat>> | undefined;
   try {
-    existing = await lstat(link);
+    existing = await lstat(filename);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
-  if (existing?.isSymbolicLink() && (await realpath(link).catch(() => undefined)) === target)
+  if (existing?.isSymbolicLink() && (await realpath(filename).catch(() => undefined)) === target)
     return undefined;
   let backup: string | undefined;
   if (existing) {
-    const old = existing.isFile() ? await readFile(link, 'utf8') : undefined;
-    const backupDir = join(workspace, '.atlas-backups');
-    await mkdir(backupDir, { recursive: true, mode: 0o700 });
-    backup = join(backupDir, `AGENTS-${randomUUID()}.md`);
-    await rename(link, backup);
-    if (
-      old !== undefined &&
-      old !== (await readFile(template, 'utf8')) &&
-      hashInstructions(old) !== generatedAssistantInstructionsHash
-    ) {
-      const local = join(workspace, 'AGENTS.local.md');
-      try {
-        await writeFile(local, old, { flag: 'wx', mode: 0o600 });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    const old = existing.isFile() ? await readFile(filename, 'utf8') : undefined;
+    const copied = (await readFile(copyHash, 'utf8').catch(() => '')).trim();
+    if (old !== undefined && copied === hashInstructions(old)) {
+      if (old === body) return undefined;
+      await rm(filename);
+    } else {
+      const backupDir = join(workspace, '.atlas-backups');
+      await mkdir(backupDir, { recursive: true, mode: 0o700 });
+      backup = join(backupDir, `AGENTS-${randomUUID()}.md`);
+      await rename(filename, backup);
+      if (
+        old !== undefined &&
+        old !== body &&
+        hashInstructions(old) !== generatedAssistantInstructionsHash
+      ) {
+        const local = join(workspace, 'AGENTS.local.md');
+        try {
+          await writeFile(local, old, { flag: 'wx', mode: 0o600 });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        }
       }
     }
   }
-  await symlink(target, link, 'file');
+  try {
+    await link(target, filename, 'file');
+    await rm(copyHash, { force: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error;
+    await writeFile(filename, body, { flag: 'wx', mode: 0o600 });
+    await writeFile(copyHash, hashInstructions(body) + '\n', { mode: 0o600 });
+  }
   return backup;
 }

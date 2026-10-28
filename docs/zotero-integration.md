@@ -1,18 +1,26 @@
 # Zotero integration design
 
-Researched 28 September 2026. This document records integration constraints and design recommendations. The implementation status below reflects the initial v1 source; recommendations are not claims of completed functionality.
+This document records how Atlas uses Zotero's local APIs, the constraints behind that design, and recommendations for future work. The first section describes what is implemented; later sections include recommendations that are not yet implemented. The research behind it dates from September 2026.
 
-## Implemented v1 and remaining work
+## Compatibility
+
+| Feature                                                                   | Requires                                      |
+| ------------------------------------------------------------------------- | --------------------------------------------- |
+| Library sync, collections, opening PDFs                                   | Zotero 7 or newer, with the local API enabled |
+| Add to Zotero (News), attaching PDFs, moving approved duplicates to Trash | Zotero 10 or newer (local API write support)  |
+| Export BibTeX                                                             | The Better BibTeX extension                   |
+
+## Implemented behavior and remaining work
 
 The backend uses Node's SQLite API with WAL, foreign keys, and a schema version table. Manual synchronization discovers the personal and group libraries, retrieves complete source snapshots, and commits them together in one transaction. It preserves Atlas summaries, notes, reading state, favorites, and archive state. Source records and annotations survive source disappearance. Imported tags and collection memberships are stored in source JSON, while collection metadata and PDF attachment relationships have dedicated tables.
 
 The Zotero adapter requests API v3, uses a fixed loopback endpoint, rejects redirects, applies request timeouts, limits individual response bodies to 128 MB, validates basic snapshot structure, and follows restricted pagination links. Source IDs incorporate the Zotero server ID when available. Older clients use a `local-default` source partition; changing profiles on those clients is not automatically detected.
 
-Atlas's PDF route resolves a known attachment through Zotero, verifies a local file URL and PDF signature, and streams the original PDF. It does not cache PDF bytes or modify Zotero files. Zotero must remain running when opening a PDF. The route currently streams the whole file and does not implement byte ranges.
+Atlas's PDF route resolves a known attachment through Zotero, verifies a local file URL and PDF signature, and streams the original PDF. It does not store PDF copies or modify Zotero files when viewing. (When the assistant finds a missing PDF, the verified download is held in memory for up to 30 minutes, at most 80 MB in total, until it is attached.) Zotero must remain running when opening a PDF. The route currently streams the whole file and does not implement byte ranges.
 
 The annotation API stores **page-linked text notes and manually entered quotes** against an attachment. Page numbers are one-based. These records are local to Atlas. Graphical selection highlights, PDF-coordinate geometry, document fingerprints, automatic page validation, imported Zotero annotation display, and annotation writeback are future work.
 
-Current scope excludes automatic/background sync, generated summaries, and an FTS index. Schema version 2 adds Atlas-owned tag definitions, descriptions, and paper assignments with a transactional upgrade from version 1. Zotero tag membership remains in source JSON; source tags are never reclassified as Atlas tags. Descriptions for both origins are stored locally and survive sync. Zotero trash and absent source items currently share the `sourceMissing` presentation flag; the source payload retains the original `deleted` field. The detailed recommendations and test checklist below describe the intended design, including work beyond this first implementation.
+Automatic/background sync is out of scope. Atlas itself generates no summaries; assistant-authored reviews are stored separately (see [architecture](architecture.md)), and full-text search uses a separate FTS5 retrieval index. Schema version 2 adds Atlas-owned tag definitions, descriptions, and paper assignments with a transactional upgrade from version 1. Zotero tag membership remains in source JSON; source tags are never reclassified as Atlas tags. Descriptions for both origins are stored locally and survive sync. Zotero trash and absent source items currently share the `sourceMissing` presentation flag; the source payload retains the original `deleted` field. The detailed recommendations and test checklist below describe the intended design, including work beyond the current implementation.
 
 ## Connection and compatibility
 
@@ -54,7 +62,7 @@ Local requests return all matching objects by default. Explicit `limit`/`start` 
 
 For very large libraries, capture all keys first and fetch batches by explicit `itemKey`, then compare a second key inventory. Reject or retry if it changes. This reduces false removals caused by changing offset pages. A future incremental mode can use local versions only after the server advertises the newer instance-aware version contract; still retain periodic full reconciliation.
 
-Use `(source_id, library_type, library_id, item_key)` as the source identity, with an independent Atlas primary key. Do not deduplicate solely on DOI: editions, preprints, and intentional duplicates must remain separate. SQLite foreign keys, transactions, WAL mode, schema migrations, and an FTS index are sufficient for v1. Keep a source JSON column for lossless compatibility and normalized tables for frequently filtered tags and collections.
+Use `(source_id, library_type, library_id, item_key)` as the source identity, with an independent Atlas primary key. Do not deduplicate solely on DOI: editions, preprints, and intentional duplicates must remain separate. SQLite foreign keys, transactions, WAL mode, schema migrations, and an FTS index are sufficient for the current design. Keep a source JSON column for lossless compatibility and normalized tables for frequently filtered tags and collections.
 
 ## Reading and annotations
 
@@ -62,7 +70,7 @@ Use a same-origin backend route such as `/api/attachments/:id/file`. It resolves
 
 PDF.js can render individual pages in an application-owned reader; its viewport handles scaling and rotation. [Official PDF.js examples](https://mozilla.github.io/pdf.js/examples/) Bundle the worker and fonts locally so normal reading does not depend on a CDN.
 
-Recommended Atlas annotation records contain attachment identity, document fingerprint, zero-based page index, page label, annotation type, comment, selected text, color, and rectangle geometry in PDF coordinates. Store multiple rectangles for multiline highlights. Convert using the PDF viewport rather than saving screen pixels. Keep imported Zotero annotations separate and read-only; clearly identify which application owns an annotation. Do not claim that Atlas annotations synchronize back to Zotero in v1.
+Recommended Atlas annotation records contain attachment identity, document fingerprint, zero-based page index, page label, annotation type, comment, selected text, color, and rectangle geometry in PDF coordinates. Store multiple rectangles for multiline highlights. Convert using the PDF viewport rather than saving screen pixels. Keep imported Zotero annotations separate and read-only; clearly identify which application owns an annotation. Do not claim that Atlas annotations synchronize back to Zotero.
 
 Persist the last page and zoom per attachment. A changed document fingerprint should trigger review of existing annotations instead of silently placing them on different content. Always offer an **Open in Zotero** escape hatch. A simple initial reader can support durable page-linked notes before implementing selection highlights, provided the UI describes that capability accurately.
 

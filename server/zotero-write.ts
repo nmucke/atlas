@@ -210,7 +210,11 @@ export class ZoteroWriter {
     const version = response.headers.get('X-Zotero-Version') ?? '';
     const id = response.headers.get('Zotero-Server-ID');
     if (Number(version.split('.')[0]) < 10 || !id)
-      throw new Error('Zotero 10 or newer with local writes is required');
+      // Reads still work here; status() uses the flag to keep Zotero shown as connected.
+      throw Object.assign(new Error('Zotero 10 or newer with local writes is required'), {
+        writesUnsupported: true,
+        version: version || null,
+      });
     if (this.serverId && this.serverId !== id) {
       this.key = null;
       this.remembered = false;

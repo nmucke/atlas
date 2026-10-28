@@ -1,6 +1,6 @@
 # Atlas assistant workflows
 
-These workflow templates support research over an Atlas library through the local MCP server. `npm run assistant:setup` installs one private copy of each skill and links it into the Codex and Claude Code discovery directories. Launch those agents from the private assistant workspace. In desktop chats or any host that does not load these local files, call `atlas_get_workflow({name})` to retrieve the current workflow.
+These workflow templates support research over an Atlas library through the local MCP server. Assistant registration (`./scripts/register-mcp.sh`, `npm run assistant:register` or `npm run assistant:setup`; see [assistant setup](assistant-setup.md)) installs one private copy of each skill and links it into the Codex and Claude Code discovery directories. Launch those agents from the private assistant workspace. In desktop chats or any host that does not load these local files, call `atlas_get_workflow({name})` to retrieve the current workflow.
 
 ## Shared tool pattern
 

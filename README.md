@@ -3,107 +3,205 @@
 [![CI](https://github.com/nmucke/atlas/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nmucke/atlas/actions/workflows/ci.yml)
 [![Dependency audit](https://github.com/nmucke/atlas/actions/workflows/dependency-audit.yml/badge.svg?branch=main)](https://github.com/nmucke/atlas/actions/workflows/dependency-audit.yml)
 [![Node.js 24+](https://img.shields.io/badge/Node.js-24%2B-5FA04E?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![React 19](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)](https://react.dev/)
-[![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)](https://sqlite.org/)
-[![Zotero](https://img.shields.io/badge/Zotero-CC2936?logo=zotero&logoColor=white)](https://www.zotero.org/)
-[![MCP](https://img.shields.io/badge/MCP-local_server-526B50)](docs/assistant-setup.md)
-[![Local-first](https://img.shields.io/badge/storage-local--first-526B50)](#local-data-and-privacy)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Atlas is a local-first academic research library and project workspace under active development. It connects to Zotero for paper metadata and PDF access, while keeping your reading workflow and notes in a local SQLite database. It runs on your computer; it does not require a cloud account or API key.
+Atlas is a local web app for researchers that sits on top of your [Zotero](https://www.zotero.org/) library. It adds a reading queue, your own tags, project workspaces with LaTeX-capable notes, and a News feed from sources you choose.
 
-**Topics:** `academic-research` · `reference-management` · `local-first` · `zotero` · `better-bibtex` · `bibtex` · `mcp` · `rag` · `research-notes` · `latex` · `pdf` · `sqlite` · `typescript` · `react` · `vite`
+You can also connect Claude or ChatGPT through MCP. The assistant can review papers and propose tags, recommendations and notes, and you approve every proposal in Atlas. Everything is stored on your computer; Atlas needs no cloud account.
+
+Atlas is early software under active development.
+
+![Atlas library view with papers, reading status and Atlas tags](docs/images/library.png)
+
+## Features
+
+- **Library:** browse Zotero papers in Inbox, Reading, Read, Starred and Archived views; search, filter by collection or tag; keep summaries, notes and page-linked PDF notes.
+- **Tags:** your own tag vocabulary with short descriptions, kept separate from Zotero tags.
+- **Projects:** link papers, write Markdown notes with KaTeX maths and figures, and export a BibTeX file for Overleaf.
+- **News:** collect new papers, posts and releases from arXiv categories, feeds, GitHub repositories and OpenAlex, only when you press Refresh.
+- **AI assistant:** eight research workflows over MCP (paper reviews, reading recommendations, project references, research notes, News triage, and more). Every result is a proposal you approve or reject.
+- **Local-first:** a SQLite database on your machine. PDFs stay in Zotero.
+
+See [docs/usage.md](docs/usage.md) for a fuller tour.
+
+## Screenshots
+
+The screenshots use demo data: public machine-learning papers with invented tags, projects and notes.
+
+| Paper details                                                                      | Project notes                                                                           |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| ![Paper details with Atlas tags and an approved AI summary](docs/images/paper.png) | ![Project notebook rendering a Markdown note with LaTeX maths](docs/images/project.png) |
+| Atlas tags, collections and an approved AI summary for a paper.                    | A project notebook rendering Markdown with KaTeX maths.                                 |
+| **News**                                                                           | **Assistant review queue**                                                              |
+| ![News feed with assistant-ranked papers and explanations](docs/images/news.png)   | ![Assistant review queue with tag and note proposals](docs/images/assistant.png)        |
+| New items from your sources, ranked by the assistant with a short explanation.     | AI proposals wait for your approval before they change anything.                        |
 
 ## Requirements
 
-- Node.js 24 or newer
-- npm
-- Zotero desktop, when syncing your library or opening PDFs
+| Software                                                                | Version     | Needed for                                                                                                          |
+| ----------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| [Node.js](https://nodejs.org/) (includes npm)                           | 24 or newer | Running Atlas                                                                                                       |
+| [Git](https://git-scm.com/downloads)                                    | any         | Downloading and updating Atlas                                                                                      |
+| [Zotero](https://www.zotero.org/download/) desktop                      | 7 or newer  | Library sync and opening PDFs                                                                                       |
+| Zotero with the local write API                                         | 10 or newer | Optional: Add to Zotero, attaching PDFs, trashing duplicates (see [Zotero integration](docs/zotero-integration.md)) |
+| [Better BibTeX](https://retorque.re/zotero-better-bibtex/installation/) | current     | Optional: BibTeX export only                                                                                        |
+| Claude Desktop, Claude Code, or ChatGPT Desktop/Codex                   | current     | Optional: the AI assistant                                                                                          |
 
-## Get started
+Atlas runs on macOS, Linux and Windows. The repository includes an `.nvmrc`, so with [nvm](https://github.com/nvm-sh/nvm) you can run `nvm install && nvm use` to get the right Node version.
+
+## Quick start
+
+1. Download Atlas and install its dependencies:
+
+   ```sh
+   git clone https://github.com/nmucke/atlas.git && cd atlas
+   npm ci
+   ```
+
+2. Build and start it:
+
+   ```sh
+   npm run build
+   npm start
+   ```
+
+3. Open [http://127.0.0.1:3210](http://127.0.0.1:3210).
+4. In Zotero, enable **Settings → Advanced → Allow other applications on this computer to communicate with Zotero**.
+5. In Atlas, click **Sync library** in the sidebar. Your Zotero papers appear in **Library → Inbox**.
+
+Leave the terminal running while you use Atlas; press Ctrl+C to stop it.
+
+For development, `npm run dev` starts the same server with live reloading and needs no build step.
+
+## Set up Zotero
+
+1. Install [Zotero 7 or newer](https://www.zotero.org/download/) and keep it running while you sync or read PDFs.
+2. Turn on the local API: **Settings → Advanced → Allow other applications on this computer to communicate with Zotero**. Atlas connects to it at `127.0.0.1:23119`.
+3. Click **Sync library** in Atlas. Sync is manual; click it again after you change things in Zotero. Your Atlas notes, tags and reading status are never overwritten by a sync.
+4. Make sure PDFs are downloaded to this computer in Zotero. Atlas opens them from Zotero's storage and does not copy them.
+5. Optional: install [Better BibTeX](https://retorque.re/zotero-better-bibtex/installation/) to use **Export BibTeX** in projects.
+6. Optional, for write features: in **Assistant → Zotero actions** (or News), click **Enable Zotero writes** and choose **Always Allow** in Zotero. This permission lasts until Atlas restarts.
+
+When Zotero is closed, Atlas still shows your last synced library.
+
+## Connect an AI assistant
+
+Atlas does not call any AI model itself. You connect a desktop assistant that you already use, and it talks to Atlas through a local [MCP](https://modelcontextprotocol.io/) bridge.
+
+1. Start Atlas (`npm start` or `npm run dev`) and keep it running.
+2. In a second terminal in the Atlas folder, register Atlas with your assistants:
+
+   | System                           | Command                                     |
+   | -------------------------------- | ------------------------------------------- |
+   | macOS, Linux                     | `./scripts/register-mcp.sh [workspace-dir]` |
+   | Windows (works everywhere)       | `npm run assistant:register`                |
+   | Without Claude Code registration | `npm run assistant:setup`                   |
+
+3. Restart Claude Desktop and/or ChatGPT Desktop. In ChatGPT, type `/mcp` to check the connection; in Claude Code, run `claude mcp list`.
+4. In Atlas, open **Assistant** and click **Rebuild index** so the assistant can search your library and PDFs.
+5. Ask your assistant, for example: _"Use Atlas's profile-and-tags workflow to propose a research profile and tag vocabulary based on my interests: …"_. Approve or reject the result in **Assistant → Review queue**.
+
+**What registration changes.** Existing settings are merged, not replaced, and every changed file is backed up beside the original first.
+
+| Where                                                                                                                                                          | What                                                                  |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`)                                                                                                          | An `atlas` entry for ChatGPT Desktop and Codex                        |
+| Claude Desktop config: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS), `%APPDATA%\Claude\…` (Windows), `~/.config/Claude/…` (Linux) | An `atlas` entry                                                      |
+| Claude Code (only if the `claude` CLI is installed)                                                                                                            | A user-scope `atlas` server                                           |
+| `<data dir>/assistant-workspace` (or the folder you pass)                                                                                                      | A private workspace with `AGENTS.md`, the workflow skills and configs |
+
+The ChatGPT and Claude Desktop entries are written even if those apps are not installed. Re-run registration after you change your Node version, move the Atlas folder, or change `ATLAS_PORT` or `ATLAS_DATA_DIR`.
+
+Run Codex or Claude Code from the assistant workspace folder so they pick up the instructions and skills. Details, privacy notes and per-host instructions are in [Assistant setup](docs/assistant-setup.md); the workflows are described in [Assistant workflows](docs/assistant-workflows.md).
+
+## Everyday use
+
+- **Read and triage:** new papers land in **Inbox**. Set a status (Inbox, Reading, Read), star or archive, and write a summary and notes. Page-linked notes in the PDF reader are stored in Atlas, not drawn onto the PDF.
+- **Tag:** add Atlas tags on a paper or under **Tags**. Prefixes such as `method/`, `data/`, `domain/`, `model/` and `task/` group tags into categories.
+- **Projects:** open **Projects**, link papers, write notes (Markdown with `$…$` and `$$…$$` maths), and click **Export BibTeX** to download a `.bib` file for Overleaf.
+- **News:** add sources in **News → Sources** (paste an arXiv category such as `stat.ML`, a URL, a GitHub repository, an OpenAlex author, or keywords), then press **Refresh**. OpenAlex and keyword sources need a free OpenAlex API key, set in News → Sources.
+- **Assistant proposals:** review AI reviews, tags, recommendations and notes in **Assistant**. AI work is always labelled and kept apart from your own text. **Library → Recommendations** lists papers by the assistant's reading score.
+
+More detail is in [docs/usage.md](docs/usage.md).
+
+## Configuration
+
+| Variable                | Default          | Purpose                                                    |
+| ----------------------- | ---------------- | ---------------------------------------------------------- |
+| `ATLAS_PORT`            | `3210`           | Port for the web app (1024–65535)                          |
+| `ATLAS_DATA_DIR`        | see below        | Where Atlas keeps its database and private files           |
+| `CODEX_HOME`            | `~/.codex`       | Location of the ChatGPT Desktop/Codex config used by setup |
+| `CLAUDE_DESKTOP_CONFIG` | platform default | Path to Claude Desktop's config file, used by setup        |
+
+Default data directory:
+
+- macOS: `~/Library/Application Support/Atlas`
+- Linux: `$XDG_DATA_HOME/atlas`, or `~/.local/share/atlas`
+- Windows: `%LOCALAPPDATA%\Atlas`
+
+Use the same `ATLAS_PORT` and `ATLAS_DATA_DIR` when starting Atlas and when registering the assistant.
+
+## Data, privacy and backup
+
+- Atlas listens only on `127.0.0.1`. Do not expose its port to a network.
+- Your notes, tags, projects, figures, AI proposals and the search index live in `atlas.sqlite` in the data directory. PDFs stay in Zotero.
+- When you use a cloud assistant (Claude, ChatGPT), the excerpts it retrieves from Atlas are sent to that provider. Local storage does not mean a local model.
+- News and paper discovery contact arXiv, OpenAlex, Crossref and the feeds you add, sending only source names and search terms.
+- To back up, stop Atlas and copy the data directory. Back up Zotero's storage separately.
+
+## Updating
 
 ```sh
-npm install
-npm run dev
-```
-
-Open [http://localhost:3210](http://localhost:3210). In Zotero, enable **Settings → Advanced → Allow other applications on this computer to communicate with Zotero**. Atlas talks to Zotero's local API at `127.0.0.1:23119/api`.
-
-For a production build, run:
-
-```sh
+git pull
+npm ci
 npm run build
-npm start
 ```
 
-The test suite is available with `npm test`.
+Then restart Atlas and restart your assistant apps' MCP connection. Database upgrades run automatically on start, so back up the data directory first. Re-run assistant registration if your Node version or the Atlas folder changed.
 
-## What Atlas does today
+## Troubleshooting
 
-Browse a Zotero library in inbox, reading, and read views; star or archive papers; search and filter by collection or tag; and keep a manual summary, notes, and page-linked notes for PDF passages. Atlas syncs bibliographic metadata, tags, collections, and attachment details from Zotero. Your Atlas tags, tag descriptions, summary, notes, reading status, starred state, and archive state remain local when Zotero metadata syncs.
+| Problem                                                     | Fix                                                                                                                             |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `npm ci` fails with `EBADENGINE`, or Node.js 24 is required | Install Node 24 (`nvm install && nvm use`), then `npm ci` again.                                                                |
+| `npm start` says to run `npm run build` first               | Run `npm run build`, or use `npm run dev`.                                                                                      |
+| "Port 3210 is already in use"                               | Another Atlas or app uses 3210. Stop it, or start with `ATLAS_PORT=3211 npm start` and re-run registration with the same value. |
+| Sync fails or says Zotero cannot be reached                 | Start Zotero and enable **Allow other applications on this computer to communicate with Zotero** in Settings → Advanced.        |
+| A PDF does not open                                         | Keep Zotero running and make sure the file is downloaded in Zotero.                                                             |
+| Export BibTeX fails                                         | Install or enable Better BibTeX in Zotero. Missing citation keys or duplicate keys are reported as errors; fix them in Zotero.  |
+| Assistant: "Start Atlas with npm start before connecting"   | Atlas is not running, or it uses a different `ATLAS_DATA_DIR` from the one registered. Start it, or re-run registration.        |
+| Assistant shows old or missing tools                        | Restart Atlas, then restart the assistant app's MCP connection and open a new chat.                                             |
+| News: OpenAlex needs a free API key                         | Add the key in **News → Sources → Settings**.                                                                                   |
+| Add to Zotero or PDF attach fails                           | Update Zotero, then click **Enable Zotero writes** again (the permission resets when Atlas restarts).                           |
 
-Page-linked PDF notes are stored in Atlas. They are not graphical annotations drawn onto the PDF. Summaries are written by you; Atlas does not generate them automatically. Projects are available as a local research workspace, and News collects new work from sources you choose.
+## Uninstall
 
-## Organizing your library
+1. Stop Atlas.
+2. Delete the data directory (see [Configuration](#configuration)). This removes your Atlas notes, tags and projects, and the default assistant workspace. Your Zotero library is not affected.
+3. If you registered an assistant, remove the `atlas` entry from `~/.codex/config.toml` and from `claude_desktop_config.json`, and run `claude mcp remove --scope user atlas`. You can also delete the `*.atlas-backup-*` files next to those configs.
+4. Delete the Atlas folder.
 
-Expand **Library** in the sidebar to switch reading views or open the **Collections** page. Collections come from Zotero; select a collection to browse its papers.
+## Limitations
 
-The **Tags** section is your local tag vocabulary. **All tags** lists Atlas tags only. The **method**, **data**, **domain**, **model**, and **task** pages group tags by name prefix: for example, `method/particle-filter` appears under method. Unprefixed Atlas tags appear in All tags. Create tags from these pages or add them directly in a paper's **Tags** section.
+- Single-user and single-computer; there is no cross-device sync.
+- Zotero remains the source of truth for bibliographic data and PDFs; Atlas does not replace it.
+- Sync and News collection are manual, never scheduled.
+- PDF search has no OCR and is keyword-based, not semantic.
+- Features and storage may change while Atlas is in early development.
 
-**Zotero tags** is a separate page and a separate section on each paper. Tags imported from Zotero stay there regardless of their name; they are never automatically promoted into your Atlas categories. You can use the same name independently in both systems. Edit Zotero tag assignments in Zotero and sync to refresh them.
+## Documentation
 
-Every tag can have a short explanation of up to 280 characters. Edit and save it on the tag's page; explanations for Zotero tags are also stored only in Atlas. Removing an Atlas tag from a paper keeps its definition and explanation available for reuse. Tag counts show unarchived papers.
+- [Usage guide](docs/usage.md): library, tags, projects, notes and News in detail
+- [Assistant setup](docs/assistant-setup.md): hosts, the local bridge, retrieval and privacy
+- [Assistant workflows](docs/assistant-workflows.md): the eight workflows and MCP tools
+- [Architecture](docs/architecture.md): data ownership and database schema
+- [Zotero integration](docs/zotero-integration.md): API use and compatibility
+- [News design](docs/news-design.md): sources, ranking and roadmap
 
-Existing databases upgrade automatically: imported tags remain Zotero tags, and your notes and reading state are preserved.
+## Contributing
 
-## Projects and research notes
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and the checks to run.
 
-Expand **Projects** for the dashboard and individual project pages. An empty **Example project** is created once when your database upgrades. Rename it or create more projects from the dashboard. Each project has a manual summary, status, Atlas tags, linked library papers, and links to a GitHub repository and an Overleaf manuscript. Save your changes with **Save project**. These links open the actual repository/manuscript in your browser; Atlas does not clone repositories or synchronize manuscript contents.
+## License
 
-Project tags reuse your Atlas vocabulary and descriptions; Zotero tags remain separate. In **Papers**, choose references from your library and save the selection. **Export BibTeX** downloads a `.bib` file using your running Zotero and its [Better BibTeX extension](https://retorque.re/zotero-better-bibtex/). Citation keys come from Better BibTeX. Missing items or duplicate citation keys produce an error instead of an incorrect bibliography. You can upload the downloaded file to Overleaf; this is a manual export, not an automatic Overleaf sync.
-
-Each project has multiple notes, organized with folders, search, pins, and an archive. Write Markdown with inline mathematics (`$x^2$`) or display equations (`$$` on separate lines), and use edit, split, or preview mode. The preview renders LaTeX mathematics with KaTeX, including aligned equations and matrices; it is not a full LaTeX document compiler. Upload PNG, JPEG, GIF, or WebP figures up to 8 MiB each. Figures are stored inside the local SQLite database. Remote images and raw HTML are not rendered.
-
-Use **Save** or **Cmd/Ctrl+S** to persist notes to SQLite. Unsaved note drafts are kept in this browser's local storage as a recovery aid when switching pages. Drafts are not part of the SQLite backup until saved; use the same browser and local address to recover them. Archive notes to hide them without deleting them; open the archive to restore them.
-
-## News
-
-**News** shows new papers, blog posts and releases from sources you add in **News → Sources**: paste an arXiv category such as `stat.ML`, a blog or journal URL, a GitHub repository, an OpenAlex author or work, or plain keywords into **Add a source**, and Atlas detects what it is. Remove a source with one click. Atlas collects only when you press **Refresh** or ask your assistant to run the `atlas-news-scan` workflow; nothing runs on a schedule. Items are ranked by a local relevance score, and the assistant can add a 1–5 score with a "why this matters" note citing your library. Save or dismiss items, or use **Add to Zotero** to create the item in a chosen collection, put it in your Inbox, link it to a project and optionally attach its PDF. OpenAlex sources need a free API key, set in News → Sources. See [News design](docs/news-design.md).
-
-## AI research assistant
-
-The **Assistant** page holds a saved research profile, retrieval-index controls, and a review queue. Connect Claude Desktop or another local MCP host to use eight workflows: profile and tag setup, paper reviews, reading recommendations, project references, research notes, Zotero PDF and duplicate maintenance, News scans, and News source suggestions. AI-authored reviews remain separate from human summaries. Paper reviews include a 1–5 reading score and brief rationale; **Library → Recommendations** shows the latest scored reviews and suggested project fits. Accepting a project suggestion links the paper to that project. Reviews keep internal evidence IDs out of the prose, with sources in the expandable Evidence section. Proposed tags prefer the existing vocabulary, require descriptions for new tags, and need approval before assignment; approved project notes retain AI attribution. Recommendations appear in Inbox with Essential, Recommended, or Optional strength, and project recommendations can be approved to link existing papers.
-
-Keep Atlas running with `npm start`, then run `./scripts/register-mcp.sh` to register Atlas with ChatGPT Desktop/Codex, Claude Desktop, and Claude Code in one step and create a private research-assistant workspace outside this repository, with its own `AGENTS.md`, skills, and connection configuration. Restart the desktop MCP connection after setup; no manual server entry is needed. See [connection setup](docs/assistant-setup.md) and [research workflows](docs/assistant-workflows.md). ChatGPT Desktop and Claude Desktop launch a local bridge that authenticates to the running Atlas server. No tunnel or public endpoint is needed; ChatGPT web does not use the desktop configuration.
-
-Retrieval is local SQLite full-text search over metadata, downloaded PDF text, project context, and notes. Each submitted artifact carries retrieved evidence and author/model attribution. No hosted embedding service or automatic model call runs inside Atlas. Using a cloud assistant sends the retrieved excerpts to that provider. New-paper discovery searches Crossref metadata; candidate papers stay separate from Zotero until you add them there.
-
-## Local data and privacy
-
-Atlas uses a local Node.js HTTP server, a React/Vite interface, and SQLite (`node:sqlite`). By default, its database is stored outside the repository:
-
-- macOS: `~/Library/Application Support/Atlas/atlas.sqlite`
-- Linux: `$XDG_DATA_HOME/atlas/atlas.sqlite`, or `~/.local/share/atlas/atlas.sqlite` when `XDG_DATA_HOME` is unset
-- Windows: `%LOCALAPPDATA%\Atlas\atlas.sqlite`
-
-Set `ATLAS_DATA_DIR` to use another data directory, or `ATLAS_PORT` to change the server port. Keep the data directory private: it contains your Atlas notes, project figures, project links, and library state. To back it up, stop Atlas and copy the directory. PDF files remain managed by Zotero rather than copied into Atlas.
-
-Zotero must be running for sync and PDF access. Previously cached metadata remains available while Zotero is offline. Review `git status` before committing: the repository ignores local databases, PDFs, and environment files, but you should confirm no private files are staged.
-
-## Current limitations
-
-Atlas is an early, single-computer tool. Zotero provides the source library and PDF storage; Atlas does not replace Zotero or provide cross-device sync. Only source fields are refreshed from Zotero, while Atlas-managed reading state and notes stay local. Features may change as development continues.
-
-## Design and development
-
-The [architecture](docs/architecture.md) explains data ownership, SQLite schema, privacy, Projects, and News. The [Zotero integration notes](docs/zotero-integration.md) document API behavior and compatibility.
-
-Run `npm run typecheck`, `npm test`, and `npm run build` before sharing changes. `npm run format` formats the source; `npm run format:check` checks formatting. Dependencies are locked in `package-lock.json`; use `npm ci` for repeatable installs.
-
-## Continuous integration
-
-- **CI** runs on pushes and pull requests using Node.js 24 on Linux, macOS, and Windows. It checks formatting (including assistant instructions and skills), runs the storage/retrieval/MCP test suite, typechecks, and builds the production app. Tests use temporary fixture databases and mocked integrations; Zotero, an AI account, and your private library are not needed.
-- **Dependency audit** checks the lockfile for high and critical vulnerabilities in production and development dependencies whenever dependency files change, every Monday, and on manual runs.
-- **Dependabot** proposes weekly updates for npm dependencies and pinned GitHub Actions. Minor and patch npm updates are grouped; major updates remain separate for review.
-
-Workflows have read-only repository permissions and do not deploy, publish packages, or upload local research data. Status badges reflect GitHub runs once these files are pushed to the repository.
+[MIT](LICENSE) © Nikolaj T. Mücke

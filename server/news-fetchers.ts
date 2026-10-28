@@ -906,7 +906,10 @@ async function fetchArxiv(value: string, ctx: FetchContext): Promise<RawNewsItem
 // ---------------------------------------------------------------------------
 // OpenAlex
 
-function openAlexParams(url: URL, ctx: Pick<FetchContext, 'contactEmail' | 'openAlexKey'>): URL {
+export function openAlexParams(
+  url: URL,
+  ctx: Pick<FetchContext, 'contactEmail' | 'openAlexKey'>,
+): URL {
   if (ctx.openAlexKey?.trim()) url.searchParams.set('api_key', ctx.openAlexKey.trim());
   if (ctx.contactEmail.trim()) url.searchParams.set('mailto', ctx.contactEmail.trim());
   return url;
