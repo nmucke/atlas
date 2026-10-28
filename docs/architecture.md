@@ -1,4 +1,4 @@
-# Atlas v1 architecture
+# Atlas architecture
 
 ## Product boundary
 
@@ -22,7 +22,7 @@ This browser-based local application is the first distribution format. It offers
 | `collections`       | Current Zotero collection names and hierarchy                                              |
 | `attachments`       | Current attachment-to-paper relationships                                                  |
 | `annotations`       | Atlas page-linked text/quote notes keyed to paper and attachment                           |
-| `settings`          | Successful sync timestamp                                                                  |
+| `settings`          | Sync timestamp, approved research profile, News contact email and OpenAlex key             |
 | `tag_definitions`   | Tag name, origin, and Atlas-owned short explanation                                        |
 | `paper_tags`        | Atlas tag-to-paper assignments                                                             |
 | `projects`          | Atlas project summaries, status, GitHub and Overleaf links                                 |
@@ -30,14 +30,17 @@ This browser-based local application is the first distribution format. It offers
 | `project_papers`    | Many-to-many project references to persistent paper state                                  |
 | `project_notes`     | Markdown notes with folders, pinning, archive, and timestamps                              |
 | `project_assets`    | Project-scoped raster figures stored as SQLite BLOBs                                       |
+| `ai_records`        | v4: assistant proposals with attribution, evidence, status; v6 adds reading scores         |
+| `rag_*`             | v5: retrieval documents, chunks and FTS5 index, with assistant runs and evidence           |
+| `zotero_*`          | v7: PDF candidates, verified PDFs, and Zotero write actions (PDF additions, trash)         |
 | `news_*`            | v8: News sources, suggestions, items, identifiers, provenance, triage, feedback, runs, FTS |
-| `schema_migrations` | Database schema versions; v2 adds tags, v3 adds projects, v8 adds News                     |
+| `schema_migrations` | Database schema versions v1–v8, described in the sections below                            |
 
 Source identity combines the desktop server ID, library type/ID, and Zotero key. For older Zotero clients without server IDs, a stable `local-default` namespace is used. Those clients cannot reliably distinguish switching Zotero profiles; do not reuse one Atlas data directory across such profiles. Upgrading to a server-ID-aware version partitions new source records to avoid incorrectly attaching old annotations; automatic identity migration is future work.
 
 Raw source metadata preserves fields Atlas does not yet display. Local state lives separately and never gets overwritten by sync. The schema uses foreign keys, unique source identities, indexes for annotations and attachments, WAL journaling, and atomic imports. Missing or trashed items remain available with their Atlas work and an unavailable-source indication.
 
-For v1 the interface loads cached library metadata and filters it locally. For larger libraries, add paginated queries, normalized Zotero membership indexes, and SQLite FTS5 before attempting full-text PDF ingestion. Avoid a vector database until there is a concrete retrieval feature.
+The interface loads cached library metadata and filters it locally. Very large libraries may later need paginated queries and normalized Zotero membership indexes. Full-text search for the assistant uses the SQLite FTS5 index added in migration v5 (see [Assistant and retrieval](#assistant-and-retrieval)); there is no vector database.
 
 ## Atlas and Zotero tags
 
@@ -53,7 +56,7 @@ The backend reads the documented desktop API and does not access Zotero's SQLite
 
 Each sync fetches and validates a full snapshot before entering one SQLite transaction. This catches unsynced edits on older Zotero clients whose version numbers do not advance locally. Pagination is followed when present, and `Total-Results` is checked when supplied. A failed fetch or invalid snapshot leaves the existing database untouched. Reads across multiple endpoints are not a single Zotero transaction: a concurrent Zotero edit can still cause a temporary cross-endpoint inconsistency; the next sync reconciles it.
 
-Sync is manual in v1. Future periodic sync should reuse this path, expose last-success/error state, and use a single-flight queue. See [Zotero integration](zotero-integration.md) for source references and compatibility details.
+Sync is manual. Any future periodic sync should reuse this path, expose last-success/error state, and use a single-flight queue. See [Zotero integration](zotero-integration.md) for source references and compatibility details.
 
 ## Reading and annotations
 
@@ -75,9 +78,11 @@ Bibliography export uses Better BibTeX's loopback JSON-RPC API. Atlas verifies Z
 
 Migration v4 adds append-only `ai_records` with kind, target, attribution, evidence snapshots, approval status, recommendation strength, and optional external candidate metadata. Project notes gain `author_type` (human by default) and `ai_record_id`. Approval transactions create Atlas tag definitions/assignments, link existing references, or create a new AI-authored note; they never overwrite paper summaries or source Zotero fields. User-approved profile text is kept in settings.
 
-The desktop host launches a local MCP stdio bridge, which reads the private assistant credential and forwards allowlisted MCP operations to the running Atlas server over authenticated loopback HTTP. The bridge does not open SQLite; the application owns retrieval and database access. The credential is rejected by ordinary UI routes. Its tools expose bounded retrieval and attributed submissions, but no approval, raw SQL, arbitrary filesystem, or human-content mutation. The localhost web UI handles approval. Tool schemas, storage validation, foreign keys, and source identity checks complement instructions; instructions are not the sole enforcement layer.
+The desktop host launches a local MCP stdio bridge, which reads the private assistant credential and forwards allowlisted MCP operations to the running Atlas server over authenticated loopback HTTP. The bridge does not open SQLite; the application owns retrieval and database access. The credential is rejected by ordinary UI routes. Its tools expose bounded retrieval and attributed submissions, but no approval, raw SQL, arbitrary filesystem, or human-content mutation. The localhost web UI handles approval. Tool schemas, storage validation, foreign keys, and source identity checks complement instructions; instructions are not the sole enforcement layer. The older `server/mcp.ts` entry point remains as a compatibility launcher for the bridge, so configurations generated by earlier releases keep working; it also requires the app to be running.
 
 Migration v5 adds `rag_documents`, overlapping `rag_chunks`, an FTS5/BM25 index, `assistant_runs`, and per-run evidence snapshots. Metadata refreshes before retrieval; PDFs index explicitly in bounded worker threads. Source hashes invalidate changed citations before submission. Project scope includes linked papers and active notes, with AI authorship preserved. Full-text PDF indexing has no OCR and cannot guarantee faithful equations or figures. This is lexical RAG; semantic embeddings and retrieval evaluation over a larger corpus are future work.
+
+Migration v6 adds a structured `reading_recommendation_json` (1–5 score and reason) to `ai_records`, used by **Library → Recommendations**. Migration v7 adds `zotero_pdf_candidates`, `zotero_verified_pdfs` and `zotero_actions`, which record assistant-found PDFs, their verified hashes, and user-authorized Zotero writes (PDF additions and approved duplicate trashing). Actions interrupted by a restart are marked failed on the next start.
 
 External paper discovery uses a Crossref metadata tool, which returns canonical candidates and citable evidence. Assistants cannot invent candidate metadata during submission. Local candidates, source papers, recommendations, and citation evidence remain distinct. Assistant instructions and eight workflow skills live in `assistant-workspace/` and are linked into the private research workspace by the setup script; they do not become developer-root instructions. See [assistant setup](assistant-setup.md) for transport choices and privacy boundaries.
 

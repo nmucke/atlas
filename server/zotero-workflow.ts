@@ -7,6 +7,7 @@ import { open, stat } from 'node:fs/promises';
 import type { AtlasDatabase } from './database.ts';
 import type { ProjectStore } from './projects.ts';
 import type { Retrieval } from './retrieval.ts';
+import { openAlexParams } from './news-fetchers.ts';
 import { ZoteroClient } from './zotero.ts';
 import { ZoteroWriter, downloadPublicPdf, publicHttpsUrl } from './zotero-write.ts';
 import type { Citation } from '../shared/assistant.ts';
@@ -246,15 +247,19 @@ export class ZoteroWorkflow {
       const value = await this.writer.probe();
       return {
         reachable: true,
+        writesSupported: true,
         version: value.version,
         authorized: value.authorized,
         automaticPdfWrites: value.automaticPdfWrites,
         actions: this.list(),
       };
-    } catch {
+    } catch (error) {
+      const unsupported = error as { writesUnsupported?: boolean; version?: string | null };
+      // An older Zotero still serves reads (sync, PDFs); only write actions need an update.
       return {
-        reachable: false,
-        version: null,
+        reachable: !!unsupported.writesUnsupported,
+        writesSupported: false,
+        version: unsupported.writesUnsupported ? (unsupported.version ?? null) : null,
         authorized: false,
         automaticPdfWrites: false,
         actions: this.list(),
@@ -348,14 +353,19 @@ export class ZoteroWorkflow {
     const paperDoi = doi(String(source.data.DOI ?? ''));
     if (!paperDoi || paperDoi.length > 250)
       throw new Error('This paper has no usable DOI for PDF discovery');
-    const response = await this.fetcher(
-      `https://api.openalex.org/works/https://doi.org/${encodeURIComponent(paperDoi)}`,
+    // Same OpenAlex key and polite-pool mailto that News uses, when configured.
+    const url = openAlexParams(
+      new URL(`https://api.openalex.org/works/https://doi.org/${encodeURIComponent(paperDoi)}`),
       {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(15000),
-        redirect: 'error',
+        contactEmail: this.library.getSetting('newsContactEmail') ?? '',
+        openAlexKey: this.library.getSetting('newsOpenAlexKey'),
       },
     );
+    const response = await this.fetcher(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(15000),
+      redirect: 'error',
+    });
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(`OpenAlex lookup failed (${response.status})`);
     const reader = response.body?.getReader();

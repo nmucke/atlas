@@ -12,6 +12,7 @@ import {
   claudeDesktopConfig,
   generatedClaudeInstructionsHash,
   hashInstructions,
+  windowsCommandLine,
 } from './register-assistant.ts';
 import { assistantOrigin } from '../server/assistant-access.ts';
 import { atlasDataDirectory } from '../server/paths.ts';
@@ -23,7 +24,10 @@ const port = new URL(origin).port;
 const options = process.argv.slice(2);
 const registerClaudeCode = options.includes('--claude-code');
 const workspaceArgument = options.find((option) => !option.startsWith('--'));
-const workspace = resolve(workspaceArgument || join(dataDirectory, 'assistant-workspace'));
+// npm runs scripts from the checkout; resolve a relative workspace from where the user ran it.
+const workspace = workspaceArgument
+  ? resolve(process.env.INIT_CWD || process.cwd(), workspaceArgument)
+  : join(dataDirectory, 'assistant-workspace');
 if (workspace === root.slice(0, -1) || workspace.startsWith(root))
   throw new Error('Choose an assistant workspace outside the development repository.');
 await mkdir(workspace, { recursive: true, mode: 0o700 });
@@ -57,39 +61,39 @@ const server = {
   args: ['--experimental-strip-types', join(root, 'server', 'mcp-local.ts')],
   env: { ATLAS_DATA_DIR: dataDirectory, ATLAS_PORT: port },
 };
-const config = { mcpServers: { atlas: server } };
-async function createOnly(path: string, body: string) {
-  await writeFile(path, body, { flag: 'wx', mode: 0o600 }).catch((error) => {
-    if (error.code !== 'EEXIST') throw error;
-    console.log(`Keeping existing ${path}`);
-  });
-}
-await createOnly(
+// Workspace copies are merged like host configurations, so a re-run after a Node,
+// checkout, port or data-directory change replaces stale Atlas entries.
+await registerClaudeDesktop(
   join(workspace, 'claude-desktop-config.fragment.json'),
-  JSON.stringify(config, null, 2) + '\n',
+  server,
+  'Workspace desktop fragment',
 );
-await createOnly(join(workspace, '.mcp.json'), JSON.stringify(config, null, 2) + '\n');
+await registerClaudeDesktop(join(workspace, '.mcp.json'), server, 'Workspace .mcp.json');
 const registration = await registerAssistant(sharedCodexConfig(), server, workspace);
 const desktop = await registerClaudeDesktop(claudeDesktopConfig(), server);
 // Claude Code owns ~/.claude.json, so register through its CLI rather than editing it.
 let claudeCode = '';
 if (registerClaudeCode) {
-  const claude = (...args: string[]) =>
-    spawnSync('claude', args, { encoding: 'utf8', shell: process.platform === 'win32' });
-  if (claude('--version').error) claudeCode = 'Claude Code: claude CLI not found; skipped.\n';
+  const addArgs = ['mcp', 'add-json', '--scope', 'user', 'atlas'];
+  const entry = JSON.stringify({ type: 'stdio', ...server });
+  const claude = (...args: string[]) => {
+    if (process.platform !== 'win32') return spawnSync('claude', args, { encoding: 'utf8' });
+    const line = windowsCommandLine('claude', args);
+    return line === null ? null : spawnSync(line, { encoding: 'utf8', shell: true });
+  };
+  const version = claude('--version');
+  if (!version || version.error || version.status !== 0)
+    claudeCode = 'Claude Code: claude CLI not found; skipped.\n';
   else {
     claude('mcp', 'remove', '--scope', 'user', 'atlas');
-    const added = claude(
-      'mcp',
-      'add-json',
-      '--scope',
-      'user',
-      'atlas',
-      JSON.stringify({ type: 'stdio', ...server }),
-    );
-    if (added.status !== 0)
-      throw new Error(`Claude Code registration failed: ${added.stderr.trim()}`);
-    claudeCode = 'Claude Code: Atlas registered for your user (claude mcp list to check).\n';
+    const added = claude(...addArgs, entry);
+    if (added?.status === 0)
+      claudeCode = 'Claude Code: Atlas registered for your user (claude mcp list to check).\n';
+    else {
+      // Other hosts are already registered; report instead of aborting the summary.
+      process.exitCode = 1;
+      claudeCode = `Claude Code: registration failed${added ? `: ${(added.stderr || added.error?.message || '').trim()}` : ' (paths contain characters cmd.exe would interpret)'}. Register manually with:\n  claude ${addArgs.join(' ')} '${entry}'\n`;
+    }
   }
 }
 // Refresh the legacy project-local entry if setup created one in an earlier release.
@@ -106,5 +110,5 @@ const skillBackups = await installAssistantSkillLinks(
 );
 for (const backup of skillBackups) console.log(`Preserved previous skill in ${backup}`);
 console.log(
-  `Atlas research workspace: ${workspace}\nChatGPT Desktop / Codex: Atlas ${registration.changed ? 'registered' : 'already registered'} in ${registration.filename}\n${registration.backup ? `Previous configuration backed up to ${registration.backup}\n` : ''}Claude Desktop: Atlas ${desktop.changed ? 'registered' : 'already registered'} in ${desktop.filename}\n${desktop.backup ? `Previous configuration backed up to ${desktop.backup}\n` : ''}${claudeCode}Restart ChatGPT Desktop and Claude Desktop (or their MCP connections) to load Atlas. No manual server entry is needed.\n\nKeep Atlas running with npm start (or npm run dev) at ${origin}. The bridge reads its credential automatically; setup never prints it.\nCodex and Claude Code skill entries link to ${join(root, 'assistant-workspace', 'skills')}. Run those agents from this workspace for local skill discovery. Desktop chats can retrieve workflows through Atlas MCP. Previous instructions and skills were preserved under ${join(workspace, '.atlas-backups')} when migration was needed. Other shared settings and MCP servers were preserved. Re-run setup after changing Node, checkout location, data directory, or port.`,
+  `Atlas research workspace: ${workspace}\nChatGPT Desktop / Codex: Atlas ${registration.changed ? 'registered' : 'already registered'} in ${registration.filename}\n${registration.backup ? `Previous configuration backed up to ${registration.backup}\n` : ''}Claude Desktop: Atlas ${desktop.changed ? 'registered' : 'already registered'} in ${desktop.filename}\n${desktop.backup ? `Previous configuration backed up to ${desktop.backup}\n` : ''}${claudeCode}Restart ChatGPT Desktop and Claude Desktop (or their MCP connections) to load Atlas. No manual server entry is needed.\n\nKeep Atlas running at ${origin}: start it with npm run build && npm start (or npm run dev). The bridge reads its credential automatically; setup never prints it.\nCodex and Claude Code skill entries link to ${join(root, 'assistant-workspace', 'skills')}. Run those agents from this workspace for local skill discovery. Desktop chats can retrieve workflows through Atlas MCP. Previous instructions and skills were preserved under ${join(workspace, '.atlas-backups')} when migration was needed. Other shared settings and MCP servers were preserved.\n\nRe-run this after changing Node version, moving the checkout, ATLAS_PORT or ATLAS_DATA_DIR.`,
 );

@@ -52,6 +52,7 @@ export class AssistantService {
       index: { ...this.retrieval.status(), indexing: !!this.indexing },
       zotero: {
         reachable: false,
+        writesSupported: false,
         version: null,
         authorized: false,
         automaticPdfWrites: false,
@@ -200,6 +201,9 @@ export class AssistantService {
     const url = new URL('https://api.crossref.org/works');
     url.searchParams.set('query.bibliographic', query);
     url.searchParams.set('rows', String(limit));
+    // Crossref's polite pool identifies callers by mailto; reuse the News contact email.
+    const mailto = this.library.getSetting('newsContactEmail')?.trim();
+    if (mailto) url.searchParams.set('mailto', mailto);
     const response = await fetcher(url, {
       headers: { 'User-Agent': 'Atlas-local-research/0.1 (MCP literature discovery)' },
       signal: AbortSignal.timeout(20000),

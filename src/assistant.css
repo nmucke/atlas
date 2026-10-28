@@ -234,6 +234,10 @@
   color: #537955;
   background: #e9f2e6;
 }
+.assistant-level-recommended {
+  color: #3f6741;
+  background: #e1ecdc;
+}
 .assistant-level-essential {
   color: #9b6e2e;
   background: #fbf0d8;
@@ -459,7 +463,7 @@
 .assistant-evidence summary::-webkit-details-marker {
   display: none;
 }
-.assistant-evidence[open] summary svg {
+.assistant-evidence[open] > summary svg {
   transform: rotate(180deg);
 }
 .assistant-evidence blockquote {
@@ -699,56 +703,242 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
-.assistant-reading-verdict,
-.assistant-reading-card {
-  padding: 18px;
-  border: 1px solid #dbe5d8;
-  border-radius: 12px;
-}
-
 .assistant-reading-verdict {
-  margin: 12px 0;
-}
-
-.assistant-reading-card h2 {
   margin: 0 0 12px;
-  font-size: 18px;
+  padding: 9px 11px;
+  border: 1px solid #dce7d4;
+  border-radius: 9px;
+  background: #f6f9f3;
+}
+.assistant-reading-verdict strong {
+  color: #4f7352;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+}
+.assistant-reading-verdict p {
+  color: #576354;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 4px 0 0;
 }
 
-.assistant-reading-card h2 button {
+/* Recommendations page: reading cards reuse the News card, section and button styles. */
+.assistant-reading-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 14px;
+}
+.assistant-reading-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  color: #7c8876;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.assistant-reading-toggle input {
+  accent-color: #547555;
+  margin: 0;
+}
+.assistant-score-guide {
+  color: #929990;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: -6px 0 0;
+}
+.assistant-reading-card {
+  min-width: 0;
+}
+.assistant-reading-score {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 5px;
+  padding: 4px 7px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+.assistant-reading-score-top {
+  color: #fff;
+  background: #547555;
+}
+.assistant-reading-score-consider {
+  color: #4f7352;
+  background: #e9f0e4;
+}
+.assistant-reading-score-low {
+  color: #798780;
+  background: #eef0ed;
+}
+.status-pill.status-archived {
+  background: #f3efe8;
+  color: #8a7a62;
+}
+.assistant-reading-title button {
+  display: inline;
+  border: 0;
+  background: none;
+  padding: 0;
   color: inherit;
   font: inherit;
   text-align: left;
-  background: none;
-  border: 0;
-  padding: 0;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
-
-.assistant-reading-score {
-  font-size: 22px;
+.assistant-reading-title button:hover {
+  text-decoration: underline;
+  text-decoration-color: #d6dfd0;
+  text-underline-offset: 3px;
 }
-
-.assistant-reading-card p,
-.assistant-score-guide {
-  line-height: 1.6;
+.assistant-reading-title button:focus-visible,
+.assistant-reading-link:focus-visible,
+.assistant-evidence summary:focus-visible {
+  outline: 2px solid #789375;
+  outline-offset: 3px;
+  border-radius: 3px;
 }
-
-.assistant-reading-card details {
-  margin-top: 16px;
-}
-
-.assistant-reading-card summary {
-  cursor: pointer;
-  margin-bottom: 12px;
-}
-
 .assistant-project-fits {
-  margin-top: 20px;
+  display: grid;
+  gap: 6px;
+  margin: 0 0 4px;
 }
-
-.assistant-project-fits .assistant-record {
+.assistant-project-fits h4 {
+  color: #8c9e7e;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  margin: 2px 0 0;
+}
+.assistant-fit-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+  border-top: 1px solid #f0f2ec;
+  padding-top: 7px;
+}
+.assistant-fit-main {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.assistant-fit-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.assistant-fit-head .news-chip-project {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.assistant-fit-unknown {
+  color: #838c81;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.assistant-fit-main p {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: #687666;
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+}
+.assistant-fit-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.assistant-fit-linked {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #4f7352;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.assistant-reading-hint {
+  color: #a0a99e;
+  font-size: 11px;
+  margin: 0;
+}
+.assistant-reading-provenance {
+  margin-top: 12px;
+}
+.assistant-reading-review .assistant-record {
   margin-top: 10px;
+  box-shadow: none;
+  background: #fcfdfb;
+}
+.assistant-reading-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #4f7352;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.assistant-reading-empty {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  border: 1px dashed #dce5d6;
+  border-radius: 10px;
+  padding: 40px 20px;
+  color: #8fa18a;
+  text-align: center;
+}
+.assistant-reading-empty h2 {
+  font-family: 'DM Serif Display', Georgia, serif;
+  color: #344535;
+  font-size: 23px;
+  font-weight: 400;
+  margin: 0;
+}
+.assistant-reading-empty p {
+  max-width: 520px;
+  color: #7c8876;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0 0 6px;
+}
+.assistant-reading-empty code {
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: #eef3e9;
+  color: #4f7352;
+  font-size: 11px;
+  white-space: nowrap;
+}
+@media (max-width: 620px) {
+  /* Keep Refresh beside the title so the first card stays near the top on phones. */
+  .assistant-page-heading.assistant-reading-heading {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .assistant-reading-heading p {
+    display: none;
+  }
+  .assistant-fit-row {
+    flex-wrap: wrap;
+  }
 }
 
 .zotero-actions {

@@ -20,11 +20,13 @@ import {
 import type { Paper, Project } from '../shared/types';
 import type { AIRecord, ResearchProfile } from '../shared/assistant';
 import { readableReview } from '../shared/review-text';
+import { compareRecommendationStrength } from '../shared/recommendations';
 import { ZoteroActions, type ZoteroStatus } from './ZoteroActions';
 import 'katex/dist/katex.min.css';
 import './assistant.css';
 
 export type { AIRecord } from '../shared/assistant';
+export { compareRecommendationStrength };
 
 interface AssistantSnapshot {
   records: AIRecord[];
@@ -175,16 +177,6 @@ function levelLabel(level: AIRecord['level']) {
   return null;
 }
 
-const strengthRank = { essential: 0, recommended: 1, optional: 2 } as const;
-export function compareRecommendationStrength(a: AIRecord, b: AIRecord) {
-  const rank = (value: AIRecord['level']) => (value ? strengthRank[value] : 3);
-  return (
-    rank(a.level) - rank(b.level) ||
-    b.createdAt.localeCompare(a.createdAt) ||
-    a.id.localeCompare(b.id)
-  );
-}
-
 function safeExternalUrl(value: string) {
   try {
     const url = new URL(value);
@@ -210,6 +202,10 @@ interface RecordCardProps {
   papers?: Paper[];
   projects?: Project[];
   compact?: boolean;
+  /** Hide Approve/Reject, e.g. where the surrounding page offers its own actions. */
+  hideDecision?: boolean;
+  /** Hide the reading score when the surrounding page already shows it. */
+  hideVerdict?: boolean;
   onDecision: (id: string, approve: boolean) => Promise<void>;
   onOpenPaper?: (id: string) => void;
   onOpenProject?: (id: string) => void;
@@ -220,6 +216,8 @@ export function AIRecordCard({
   papers = [],
   projects = [],
   compact = false,
+  hideDecision = false,
+  hideVerdict = false,
   onDecision,
   onOpenPaper,
   onOpenProject,
@@ -262,7 +260,7 @@ export function AIRecordCard({
         )}
       </div>
       <h3>{record.title || kindLabel(record.kind)}</h3>
-      {record.readingRecommendation && (
+      {record.readingRecommendation && !hideVerdict && (
         <div className="assistant-reading-verdict">
           <strong>Reading recommendation · {record.readingRecommendation.score}/5</strong>
           <p>{record.readingRecommendation.reason}</p>
@@ -363,7 +361,7 @@ export function AIRecordCard({
           </span>
           <time dateTime={record.createdAt}>Proposed {dateLabel(record.createdAt)}</time>
         </div>
-        {record.status === 'pending' && (
+        {record.status === 'pending' && !hideDecision && (
           <div className="assistant-decision-actions">
             <button disabled={busy} onClick={() => void decide(false)}>
               <X size={14} /> Reject

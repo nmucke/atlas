@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { existsSync } from 'node:fs';
 import { mkdir, stat, readFile, open } from 'node:fs/promises';
 import { resolve, join, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,18 @@ import { NewsZotero } from './news-zotero.ts';
 import type { NewsListFilter } from '../shared/news.ts';
 import type { SyncState } from '../shared/types.ts';
 const root = fileURLToPath(new URL('../', import.meta.url));
+const production = process.argv.includes('--production');
+function exitWith(message: string): never {
+  console.error(message);
+  process.exit(1);
+}
+const notBuilt = 'Atlas has not been built yet. Run `npm run build` first, or use `npm run dev`.';
+// The API and assistant bridge still work without a build; only the web app needs dist/.
+const built = !production || existsSync(join(root, 'dist', 'index.html'));
+if (!built) console.warn(notBuilt);
+const port = Number(process.env.ATLAS_PORT || 3210);
+if (!Number.isInteger(port) || port < 1024 || port > 65535)
+  exitWith('ATLAS_PORT must be an integer from 1024 to 65535.');
 const dataDirectory = atlasDataDirectory();
 await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
 process.umask(0o077);
@@ -27,9 +40,6 @@ assistant.retrieval.refresh();
 const assistantRpc = await createAssistantRpc(assistant, await loadAssistantToken(dataDirectory));
 const bibliography = new BetterBibTeX();
 const zotero = new ZoteroClient();
-const port = Number(process.env.ATLAS_PORT || 3210);
-if (!Number.isInteger(port) || port < 1024 || port > 65535)
-  throw new Error('ATLAS_PORT must be an integer from 1024 to 65535');
 const sync: SyncState = {
   syncing: false,
   lastSync: database.getSetting('lastSync'),
@@ -54,7 +64,6 @@ async function syncFromZotero() {
 }
 assistant.zotero.setSync(syncFromZotero);
 const newsZotero = new NewsZotero(database, projects, assistant.zotero);
-const production = process.argv.includes('--production');
 const vite = production
   ? null
   : await (
@@ -151,7 +160,7 @@ const server = createServer(async (req, res) => {
           if (req.method === 'GET') return json(res, 200, news.collectStatus());
           if (req.method === 'POST') {
             // Manual refresh only; the UI polls the status instead of holding the request open.
-            void news.collect();
+            news.collect().catch((error) => console.error('News collection failed:', error));
             return json(res, 202, news.collectStatus());
           }
         }
@@ -422,6 +431,11 @@ const server = createServer(async (req, res) => {
       vite.middlewares(req, res);
       return;
     }
+    if (!built) {
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(notBuilt);
+      return;
+    }
     const dist = join(root, 'dist');
     let file = resolve(dist, '.' + decodeURIComponent(path));
     if (!file.startsWith(dist + sep) && file !== dist)
@@ -429,6 +443,8 @@ const server = createServer(async (req, res) => {
     try {
       if (!(await stat(file)).isFile()) file = join(dist, 'index.html');
     } catch {
+      // Missing assets (e.g. after a rebuild) are real 404s; only app routes fall back.
+      if (extname(file)) return json(res, 404, { error: 'File not found' });
       file = join(dist, 'index.html');
     }
     const mime: Record<string, string> = {
@@ -456,9 +472,12 @@ server.listen(port, '127.0.0.1', () =>
     `Atlas is running at http://127.0.0.1:${port}\nYour library is stored in ${dataDirectory}`,
   ),
 );
-server.on('error', (e) => {
-  console.error(e.message);
-  process.exit(1);
+server.on('error', (e: NodeJS.ErrnoException) => {
+  if (e.code === 'EADDRINUSE')
+    exitWith(
+      `Port ${port} is already in use. Stop the other process (another Atlas?) or set ATLAS_PORT to a free port.`,
+    );
+  exitWith(e.message);
 });
 for (const signal of ['SIGINT', 'SIGTERM'] as const)
   process.on(signal, () => {

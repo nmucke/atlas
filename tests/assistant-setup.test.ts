@@ -10,8 +10,10 @@ import {
   symlink,
   lstat,
   mkdir,
+  utimes,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { getStaticTOMLValue, parseTOML } from 'toml-eslint-parser';
 import {
@@ -20,6 +22,8 @@ import {
   registerAssistant,
   installAssistantSkillLinks,
   installAssistantInstructions,
+  registerClaudeDesktop,
+  windowsCommandLine,
 } from '../scripts/register-assistant.ts';
 
 const connection = {
@@ -150,6 +154,14 @@ test('registration backs up exact bytes, writes privately, and does not duplicat
     await writeFile(`${filename}.atlas-setup.lock`, '');
     await assert.rejects(registerAssistant(filename, connection, workspace), /Cannot lock/);
     assert.equal(await readFile(filename, 'utf8'), 'invalid secret = ???');
+    await writeFile(`${filename}.atlas-setup.lock`, `${process.pid}\n`);
+    await assert.rejects(
+      registerAssistant(filename, connection, workspace),
+      (error: unknown) =>
+        error instanceof Error &&
+        error.message.includes(`${filename}.atlas-setup.lock`) &&
+        /another Atlas setup/.test(error.message),
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -174,48 +186,44 @@ test(
   },
 );
 
-test(
-  'Codex and Claude skill links share one source and preserve previous copies',
-  { skip: process.platform === 'win32' },
-  async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'atlas skills '));
-    try {
-      const templates = join(dir, 'templates');
-      const workspace = join(dir, 'workspace');
-      await mkdir(join(templates, 'atlas-one'), { recursive: true });
-      await writeFile(join(templates, 'atlas-one', 'SKILL.md'), 'canonical');
-      await mkdir(join(workspace, '.claude', 'skills', 'atlas-one'), { recursive: true });
-      await writeFile(join(workspace, '.claude', 'skills', 'atlas-one', 'SKILL.md'), 'previous');
-      await mkdir(join(workspace, '.claude', 'skills', 'personal'), { recursive: true });
-      await writeFile(join(workspace, '.claude', 'skills', 'personal', 'SKILL.md'), 'personal');
-      const backups = await installAssistantSkillLinks(workspace, templates);
-      assert.equal(backups.length, 1);
-      assert.equal(await readFile(join(backups[0], 'SKILL.md'), 'utf8'), 'previous');
-      assert.ok(backups.every((path) => path.includes('/.atlas-backups/')));
-      assert.equal(
-        await readFile(join(workspace, '.claude', 'skills', 'personal', 'SKILL.md'), 'utf8'),
-        'personal',
-      );
-      for (const host of ['.agents', '.claude']) {
-        const link = join(workspace, host, 'skills', 'atlas-one');
-        assert.ok((await lstat(link)).isSymbolicLink());
-        assert.equal(await readFile(join(link, 'SKILL.md'), 'utf8'), 'canonical');
-      }
-      assert.deepEqual(await installAssistantSkillLinks(workspace, templates), []);
-      assert.deepEqual(await readdir(join(workspace, '.claude', 'skills')), [
-        'atlas-one',
-        'personal',
-      ]);
-      await writeFile(join(templates, 'atlas-one', 'SKILL.md'), 'updated');
-      assert.equal(
-        await readFile(join(workspace, '.agents', 'skills', 'atlas-one', 'SKILL.md'), 'utf8'),
-        'updated',
-      );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
+test('Codex and Claude skill links share one source and preserve previous copies', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'atlas skills '));
+  try {
+    const templates = join(dir, 'templates');
+    const workspace = join(dir, 'workspace');
+    await mkdir(join(templates, 'atlas-one'), { recursive: true });
+    await writeFile(join(templates, 'atlas-one', 'SKILL.md'), 'canonical');
+    await mkdir(join(workspace, '.claude', 'skills', 'atlas-one'), { recursive: true });
+    await writeFile(join(workspace, '.claude', 'skills', 'atlas-one', 'SKILL.md'), 'previous');
+    await mkdir(join(workspace, '.claude', 'skills', 'personal'), { recursive: true });
+    await writeFile(join(workspace, '.claude', 'skills', 'personal', 'SKILL.md'), 'personal');
+    const backups = await installAssistantSkillLinks(workspace, templates);
+    assert.equal(backups.length, 1);
+    assert.equal(await readFile(join(backups[0], 'SKILL.md'), 'utf8'), 'previous');
+    assert.ok(backups.every((path) => path.includes(`${sep}.atlas-backups${sep}`)));
+    assert.equal(
+      await readFile(join(workspace, '.claude', 'skills', 'personal', 'SKILL.md'), 'utf8'),
+      'personal',
+    );
+    for (const host of ['.agents', '.claude']) {
+      const link = join(workspace, host, 'skills', 'atlas-one');
+      assert.ok((await lstat(link)).isSymbolicLink());
+      assert.equal(await readFile(join(link, 'SKILL.md'), 'utf8'), 'canonical');
     }
-  },
-);
+    assert.deepEqual(await installAssistantSkillLinks(workspace, templates), []);
+    assert.deepEqual(await readdir(join(workspace, '.claude', 'skills')), [
+      'atlas-one',
+      'personal',
+    ]);
+    await writeFile(join(templates, 'atlas-one', 'SKILL.md'), 'updated');
+    assert.equal(
+      await readFile(join(workspace, '.agents', 'skills', 'atlas-one', 'SKILL.md'), 'utf8'),
+      'updated',
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test(
   'canonical AGENTS link preserves prior custom instructions',
@@ -263,3 +271,133 @@ test(
     }
   },
 );
+
+test('a byte-order mark does not make existing configurations invalid', () => {
+  const toml = '\uFEFF# personal\n[mcp_servers.corpus]\ncommand = "keep"\n';
+  const updated = updateAtlasConfig(toml, connection, workspace);
+  assert.equal(parse(updated).mcp_servers.atlas.command, connection.command);
+  assert.equal(parse(updated).mcp_servers.corpus.command, 'keep');
+  assert.equal(updateAtlasConfig('\uFEFF' + updated, connection, workspace), '\uFEFF' + updated);
+  const json = '\uFEFF{"mcpServers": {"corpus": {"command": "keep"}}}';
+  const desktop = JSON.parse(updateClaudeDesktopConfig(json, connection));
+  assert.equal(desktop.mcpServers.atlas.command, connection.command);
+  assert.equal(desktop.mcpServers.corpus.command, 'keep');
+  const current = '\uFEFF' + updateClaudeDesktopConfig('', connection);
+  assert.equal(updateClaudeDesktopConfig(current, connection), current);
+});
+
+test('locks left by an interrupted setup are replaced', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'atlas lock '));
+  try {
+    const filename = join(dir, 'config.toml');
+    const lockname = `${filename}.atlas-setup.lock`;
+    const finished = spawnSync(process.execPath, ['-e', '']).pid;
+    await writeFile(lockname, `${finished}\n`);
+    assert.equal((await registerAssistant(filename, connection, workspace)).changed, true);
+    await assert.rejects(stat(lockname), { code: 'ENOENT' });
+    await writeFile(lockname, '');
+    const old = new Date(Date.now() - 120_000);
+    await utimes(lockname, old, old);
+    const moved = { ...connection, env: { ...connection.env, ATLAS_PORT: '45678' } };
+    assert.equal((await registerAssistant(filename, moved, workspace)).changed, true);
+    assert.equal(parse(await readFile(filename, 'utf8')).mcp_servers.atlas.env.ATLAS_PORT, '45678');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('workspace MCP files are refreshed on re-run and keep other servers', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'atlas workspace mcp '));
+  try {
+    const filename = join(dir, '.mcp.json');
+    await writeFile(
+      filename,
+      JSON.stringify({ mcpServers: { atlas: { command: '/old/node' }, other: { command: 'x' } } }),
+    );
+    const result = await registerClaudeDesktop(filename, connection, 'Workspace .mcp.json');
+    assert.equal(result.changed, true);
+    const actual = JSON.parse(await readFile(filename, 'utf8'));
+    assert.equal(actual.mcpServers.atlas.command, connection.command);
+    assert.deepEqual(actual.mcpServers.atlas.env, connection.env);
+    assert.equal(actual.mcpServers.other.command, 'x');
+    assert.equal(
+      (await registerClaudeDesktop(filename, connection, 'Workspace .mcp.json')).changed,
+      false,
+    );
+    await writeFile(filename, '{"broken"');
+    await assert.rejects(
+      registerClaudeDesktop(filename, connection, 'Workspace .mcp.json'),
+      /Workspace \.mcp\.json configuration is not valid JSON/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('AGENTS falls back to a tracked copy when file symlinks are not permitted', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'atlas agents copy '));
+  const denied = async () => {
+    throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
+  };
+  try {
+    const template = join(dir, 'canonical.md');
+    const workspace = join(dir, 'workspace');
+    const agents = join(workspace, 'AGENTS.md');
+    await mkdir(workspace);
+    await writeFile(template, 'v1');
+    assert.equal(await installAssistantInstructions(workspace, template, denied), undefined);
+    assert.equal(await readFile(agents, 'utf8'), 'v1');
+    assert.equal(await installAssistantInstructions(workspace, template, denied), undefined);
+    await writeFile(template, 'v2');
+    assert.equal(await installAssistantInstructions(workspace, template, denied), undefined);
+    assert.equal(await readFile(agents, 'utf8'), 'v2');
+    await writeFile(agents, 'my edit');
+    await writeFile(template, 'v3');
+    const backup = await installAssistantInstructions(workspace, template, denied);
+    assert.ok(backup);
+    assert.equal(await readFile(backup, 'utf8'), 'my edit');
+    assert.equal(await readFile(join(workspace, 'AGENTS.local.md'), 'utf8'), 'my edit');
+    assert.equal(await readFile(agents, 'utf8'), 'v3');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Microsoft C runtime argument splitting, as used by node.exe and other Windows programs.
+function windowsArgv(line: string) {
+  const args: string[] = [];
+  let current = '';
+  let quoted = false;
+  let started = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '\\') {
+      let count = 0;
+      while (line[i] === '\\') (count++, i++);
+      if (line[i] === '"') {
+        current += '\\'.repeat(Math.floor(count / 2));
+        if (count % 2) current += '"';
+        else ((quoted = !quoted), (started = true));
+      } else ((current += '\\'.repeat(count)), i--);
+      started = true;
+    } else if (char === '"') ((quoted = !quoted), (started = true));
+    else if (/\s/.test(char) && !quoted) {
+      if (started) args.push(current);
+      current = '';
+      started = false;
+    } else ((current += char), (started = true));
+  }
+  if (started) args.push(current);
+  return args;
+}
+
+test('Windows command lines keep JSON and paths with spaces as single arguments', () => {
+  const entry = JSON.stringify({
+    command: 'C:\\Program Files\\nodejs\\node.exe',
+    args: ['C:\\dir\\', 'say "hi"'],
+  });
+  for (const args of [['mcp', 'add-json', 'atlas', entry], ['C:\\a b\\'], [''], ['plain']])
+    assert.deepEqual(windowsArgv(windowsCommandLine('claude', args)!), ['claude', ...args]);
+  assert.equal(windowsCommandLine('claude', ['C:\\100%\\x']), null);
+  assert.equal(windowsCommandLine('claude', ['a&b']), null);
+});

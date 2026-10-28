@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -61,5 +61,12 @@ export async function runLocalBridge() {
     process.exitCode = 1;
   }
 }
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]))
-  await runLocalBridge();
+// Compare real paths so a symlinked checkout or drive-letter case still starts the bridge.
+const isMain = (path: string) => {
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(path);
+  } catch {
+    return false;
+  }
+};
+if (process.argv[1] && isMain(process.argv[1])) await runLocalBridge();

@@ -1491,7 +1491,8 @@ function ZoteroPopover({
   const term = search.trim().toLocaleLowerCase();
   const shown = term ? rows.filter((row) => row.path.toLocaleLowerCase().includes(term)) : rows;
   const zotero = useZoteroWriteAccess();
-  const canAdd = !!zotero.status?.reachable && zotero.status.authorized;
+  const canAdd =
+    !!zotero.status?.reachable && zotero.status.writesSupported && zotero.status.authorized;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -1681,6 +1682,11 @@ function ZoteroAccess({
             <RotateCcw size={13} className={checking ? 'spin' : ''} /> Check again
           </button>
         </>
+      ) : status && !status.writesSupported ? (
+        <p className="news-pop-error">
+          <AlertCircle size={13} /> Update Zotero to use write actions (Add to Zotero, attach PDF,
+          trash duplicates).
+        </p>
       ) : status && !status.authorized ? (
         <>
           <p>Atlas needs permission to write to Zotero. {alwaysAllow}</p>

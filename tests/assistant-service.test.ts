@@ -208,8 +208,10 @@ test('external recommendations use canonical indexed Crossref metadata', async (
       url: 'https://doi.org/10.1234%2FEXAMPLE',
       abstract: 'Published abstract',
     };
+    f.db.setSetting('newsContactEmail', 'researcher@example.org');
     const fetcher = (async (url: URL) => {
       assert.equal(url.origin, 'https://api.crossref.org');
+      assert.equal(url.searchParams.get('mailto'), 'researcher@example.org');
       return Response.json({
         message: {
           items: [

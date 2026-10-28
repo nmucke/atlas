@@ -216,6 +216,36 @@ test('Zotero client reports offline and forbidden responses clearly', async () =
   await assert.rejects(forbidden.request('/'), /access is disabled/);
 });
 
+test('Zotero client separates timeouts from an unreachable Zotero', async () => {
+  const slow = new ZoteroClient(
+    mockFetch(() => {
+      throw new DOMException('The operation timed out.', 'TimeoutError');
+    }),
+  );
+  await assert.rejects(slow.request('/'), /did not respond within 60 seconds/);
+  // A timeout while streaming the body must not surface as a raw abort error.
+  const stalled = new ZoteroClient(
+    mockFetch(
+      () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              controller.error(new DOMException('This operation was aborted', 'AbortError'));
+            },
+          }),
+        ),
+    ),
+  );
+  await assert.rejects(stalled.list('/users/0/items', null), /did not respond within 60 seconds/);
+});
+
+test('Zotero client explains that Zotero 6 has no local API', async () => {
+  const legacy = new ZoteroClient(
+    mockFetch(() => new Response('No endpoint found', { status: 404 })),
+  );
+  await assert.rejects(legacy.snapshots(), /needs Zotero 7 or newer/);
+});
+
 test('Zotero client rejects malformed JSON list responses', async () => {
   const client = new ZoteroClient(mockFetch(() => new Response('{broken')));
   await assert.rejects(client.list('/users/0/items', null), SyntaxError);

@@ -1,21 +1,33 @@
 {
   "name": "atlas-research",
   "version": "0.1.0",
+  "description": "Local-first research library and project workspace on top of Zotero, with an MCP-connected AI assistant.",
+  "license": "MIT",
+  "author": "Nikolaj T. Mücke",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nmucke/atlas.git"
+  },
+  "homepage": "https://github.com/nmucke/atlas#readme",
+  "bugs": {
+    "url": "https://github.com/nmucke/atlas/issues"
+  },
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=24.0.0"
   },
   "scripts": {
-    "dev": "node --experimental-strip-types server/index.ts",
+    "dev": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/index.ts",
     "build": "tsc --noEmit && vite build",
-    "start": "node --experimental-strip-types server/index.ts --production",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "start": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/index.ts --production",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "mcp": "node --experimental-strip-types server/mcp-local.ts",
-    "assistant:setup": "node --experimental-strip-types scripts/setup-assistant.ts"
+    "mcp": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/mcp-local.ts",
+    "assistant:setup": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/setup-assistant.ts",
+    "assistant:register": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/setup-assistant.ts --claude-code"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",
@@ -39,5 +51,8 @@
     "prettier": "^3.9.9",
     "typescript": "^5.9.2",
     "vite": "^7.1.7"
+  },
+  "overrides": {
+    "katex": "$katex"
   }
 }
