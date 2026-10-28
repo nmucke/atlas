@@ -455,7 +455,8 @@ export default function App() {
     if (!mayLeaveProject()) return;
     setProjectDirty(false);
     setPage('papers');
-    setView('all');
+    // Archived papers are only listed in the Archived view; any other view would reselect.
+    setView(papers.find((paper) => paper.id === id)?.archived ? 'archived' : 'all');
     setCollectionId(null);
     setTag(null);
     setQuery('');
@@ -996,6 +997,9 @@ export default function App() {
                 onDecision={decideAI}
                 onOpenPaper={openAIPaper}
                 onOpenProject={chooseProject}
+                onOpenAssistant={chooseAssistant}
+                onSetStatus={(paper, status) => updatePaper(paper, { status })}
+                onReadPdf={openPdf}
               />
             ) : page === 'assistant' ? (
               <AssistantPage
